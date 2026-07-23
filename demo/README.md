@@ -39,7 +39,16 @@ Agent 动画：
 ```bash
 spine233-agent-cli animate-project-transform --recipe demo/raptor/agent-animation.json
 spine233-agent-cli animate-project-transform --recipe demo/raptor/agent-animation.json --apply --overwrite
+
+spine233-agent-cli compare-project-transform \
+  --source demo/raptor/raptor-human.spine \
+  --source-animation gun-grab \
+  --target demo/raptor/raptor-agent.spine \
+  --target-animation gun-grab-agent
 ```
+
+当前语义验收：Alien 8、Hero 4、Raptor 4 个关键帧值不同；三者均满足
+`agentReady=true`（动画名正确、拓扑兼容、动画数据确有变化）。
 
 每个目录保持官方工程布局，包括 `.spine`、`images/`、官方导出文件和该
 工程的 `license.txt`。这些文件仅用于测试与评估；使用者仍需遵守目录内许可

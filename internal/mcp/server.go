@@ -77,7 +77,7 @@ func dispatch(ctx context.Context, req request) response {
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]string{"name": "spine233-agent-cli", "version": app.Version},
-			"instructions":    "Local Spine Pro tools. Direct .spine and JSON edits are preview-first, require apply=true to write, and never overwrite input. No Spine executable is invoked.",
+			"instructions":    "Local Spine Pro tools. Direct .spine and JSON edits are preview-first, require apply=true to write, and never overwrite input. No Spine executable is invoked. Agent workflow: list animations and transform timelines, build a filtered recipe, edit keys, preview rewrite, apply to a new *-agent.spine path, then compare human and agent animations.",
 		}
 	case "ping":
 		result.Result = map[string]any{}
