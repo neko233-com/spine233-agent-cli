@@ -1,0 +1,18 @@
+{
+  "inputPath": "alien-human.spine",
+  "outputPath": "alien-agent.spine",
+  "animation": "death",
+  "targetAnimation": "death-agent",
+  "endBefore": "hit",
+  "intent": "强化身体抽搐、反冲和最终倒地幅度",
+  "edits": [
+    {"from": -10.509285, "to": -18, "expectedMatches": 1},
+    {"from": -7.73407, "to": 12, "expectedMatches": 1},
+    {"from": -11.744247, "to": -22, "expectedMatches": 1},
+    {"from": -8.242554, "to": 16, "expectedMatches": 1},
+    {"from": -8.235916, "to": -14, "expectedMatches": 1},
+    {"from": -5.0681, "to": 8, "expectedMatches": 1},
+    {"from": 30.29, "to": 42, "expectedMatches": 1},
+    {"from": 74.27, "to": 95, "expectedMatches": 1}
+  ]
+}

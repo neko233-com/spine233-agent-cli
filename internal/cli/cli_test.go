@@ -26,3 +26,31 @@ func TestRunSummarize(t *testing.T) {
 		t.Fatalf("result = %s", output.String())
 	}
 }
+
+func TestRunAnimateProjectRecipePreview(t *testing.T) {
+	recipe := filepath.Join("..", "..", "demo", "hero", "agent-animation.json")
+	output := new(bytes.Buffer)
+	if err := Run(
+		context.Background(),
+		[]string{"animate-project", "--recipe", recipe},
+		bytes.NewReader(nil),
+		output,
+		new(bytes.Buffer),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Applied bool `json:"applied"`
+		Patch   struct {
+			Animation       string `json:"animation"`
+			TargetAnimation string `json:"targetAnimation"`
+		} `json:"patch"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Applied || result.Patch.Animation != "attack" ||
+		result.Patch.TargetAnimation != "attack-agent" {
+		t.Fatalf("result = %s", output.String())
+	}
+}

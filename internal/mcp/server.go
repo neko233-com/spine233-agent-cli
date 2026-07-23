@@ -77,7 +77,7 @@ func dispatch(ctx context.Context, req request) response {
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]string{"name": "spine233-agent-cli", "version": app.Version},
-			"instructions":    "Local Spine Pro tools. Read-only by default. Export/import require a licensed Spine executable. JSON patches require apply=true and never overwrite input.",
+			"instructions":    "Local Spine Pro tools. Direct .spine and JSON edits are preview-first, require apply=true to write, and never overwrite input. No Spine executable is invoked.",
 		}
 	case "ping":
 		result.Result = map[string]any{}
@@ -98,15 +98,13 @@ func dispatch(ctx context.Context, req request) response {
 
 func tools() []map[string]any {
 	path := map[string]any{"type": "string", "description": "Local .spine, .skel, or Spine JSON file path"}
-	executable := map[string]any{"type": "string", "description": "Licensed Spine executable; defaults to SPINE_EXECUTABLE, Spine.com, or Spine"}
-	timeout := map[string]any{"type": "integer", "minimum": 1, "maximum": 3600, "default": 120}
 	return []map[string]any{
 		{
 			"name": "spine_detect", "description": "Detect local .spine, .skel, or Spine JSON format without launching Spine Editor.",
 			"inputSchema": schema(map[string]any{"path": path}, "path"),
 		},
 		{
-			"name": "spine_summarize", "description": "Summarize project metadata or JSON bones, slots, skins, events, and animations. Private .spine semantic data requires spine_export_project.",
+			"name": "spine_summarize", "description": "Summarize project metadata or JSON bones, slots, skins, events, and animations without invoking Spine Editor.",
 			"inputSchema": schema(map[string]any{"path": path}, "path"),
 		},
 		{
@@ -116,32 +114,6 @@ func tools() []map[string]any {
 				"outputDirectory":   map[string]any{"type": "string", "description": "Optional diagnostics directory; unique temp directory when omitted"},
 				"omitDecodedBinary": map[string]any{"type": "boolean", "default": false},
 			}, "path"),
-		},
-		{
-			"name": "spine_export_project", "description": "Use installed licensed Spine Pro CLI to export semantic .spine data to JSON. Returns compact summaries and local output paths.",
-			"inputSchema": schema(map[string]any{
-				"path":              path,
-				"outputDirectory":   map[string]any{"type": "string"},
-				"executable":        executable,
-				"exportSettings":    map[string]any{"type": "string", "description": "Spine export settings JSON path; defaults to built-in json"},
-				"editorVersion":     map[string]any{"type": "string"},
-				"timeoutSeconds":    timeout,
-				"omitDecodedBinary": map[string]any{"type": "boolean", "default": false},
-			}, "path"),
-		},
-		{
-			"name": "spine_import_project", "description": "Use installed licensed Spine Pro CLI to import semantic Spine JSON as a .spine project. Refuses existing output unless overwrite=true.",
-			"inputSchema": schema(map[string]any{
-				"jsonPath":          map[string]any{"type": "string", "description": "Local Spine JSON input"},
-				"projectPath":       map[string]any{"type": "string", "description": "Output .spine path"},
-				"outputDirectory":   map[string]any{"type": "string", "description": "Optional diagnostics directory"},
-				"executable":        executable,
-				"editorVersion":     map[string]any{"type": "string"},
-				"skeletonName":      map[string]any{"type": "string"},
-				"timeoutSeconds":    timeout,
-				"omitDecodedBinary": map[string]any{"type": "boolean", "default": false},
-				"overwrite":         map[string]any{"type": "boolean", "default": false},
-			}, "jsonPath", "projectPath"),
 		},
 		{
 			"name": "spine_query_json", "description": "Read a bounded semantic subtree from Spine JSON using RFC 6901 JSON Pointer, for example /animations/walk.",
@@ -171,6 +143,53 @@ func tools() []map[string]any {
 				"apply":     map[string]any{"type": "boolean", "default": false},
 				"overwrite": map[string]any{"type": "boolean", "default": false},
 			}, "inputPath", "operations"),
+		},
+		{
+			"name": "spine_analyze_json", "description": "Deep inventory of bones, slots, skins, animations, events, all constraint families, attachment types, and timeline types.",
+			"inputSchema": schema(map[string]any{"path": map[string]any{"type": "string", "description": "Local Spine JSON path"}}, "path"),
+		},
+		{
+			"name": "spine_validate_json", "description": "Validate stable cross-version bone, slot, constraint, and animation references without writing.",
+			"inputSchema": schema(map[string]any{"path": map[string]any{"type": "string", "description": "Local Spine JSON path"}}, "path"),
+		},
+		{
+			"name": "spine_clone_animation", "description": "Preview or generate an animation by cloning and retiming a source, replacing selected bone rotate/translate/scale/shear timelines, and adding an Agent marker event.",
+			"inputSchema": schema(map[string]any{
+				"inputPath":       map[string]any{"type": "string"},
+				"outputPath":      map[string]any{"type": "string"},
+				"source":          map[string]any{"type": "string"},
+				"target":          map[string]any{"type": "string"},
+				"timeScale":       map[string]any{"type": "number", "exclusiveMinimum": 0, "default": 1},
+				"boneMotions":     map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+				"markerEvent":     map[string]any{"type": "string", "default": "agent-generated"},
+				"replaceExisting": map[string]any{"type": "boolean", "default": false},
+				"apply":           map[string]any{"type": "boolean", "default": false},
+				"overwrite":       map[string]any{"type": "boolean", "default": false},
+			}, "inputPath", "source", "target"),
+		},
+		{
+			"name": "spine_patch_project_animation", "description": "Preview or apply exact float32 keyframe edits and optional animation rename directly inside one .spine record. Never invokes Spine Editor or overwrites input.",
+			"inputSchema": schema(map[string]any{
+				"inputPath":       map[string]any{"type": "string"},
+				"outputPath":      map[string]any{"type": "string"},
+				"animation":       map[string]any{"type": "string"},
+				"targetAnimation": map[string]any{"type": "string", "description": "Optional renamed animation, convention: {animation}-agent"},
+				"endBefore":       map[string]any{"type": "string", "description": "Next animation record name; omit for final record"},
+				"edits": map[string]any{
+					"type": "array", "minItems": 1,
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"from":            map[string]any{"type": "number"},
+							"to":              map[string]any{"type": "number"},
+							"expectedMatches": map[string]any{"type": "integer", "minimum": 1},
+						},
+						"required": []string{"from", "to", "expectedMatches"},
+					},
+				},
+				"apply":     map[string]any{"type": "boolean", "default": false},
+				"overwrite": map[string]any{"type": "boolean", "default": false},
+			}, "inputPath", "animation", "edits"),
 		},
 	}
 }
@@ -217,18 +236,6 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.Inspect(args)
-	case "spine_export_project":
-		var args spineops.ExportOptions
-		if err := json.Unmarshal(call.Arguments, &args); err != nil {
-			return nil, err
-		}
-		return spineops.Export(ctx, args)
-	case "spine_import_project":
-		var args spineops.ImportOptions
-		if err := json.Unmarshal(call.Arguments, &args); err != nil {
-			return nil, err
-		}
-		return spineops.Import(ctx, args)
 	case "spine_query_json":
 		var args struct {
 			Path     string `json:"path"`
@@ -248,6 +255,34 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.PatchJSON(args)
+	case "spine_analyze_json":
+		var args struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.Analyze(args.Path)
+	case "spine_validate_json":
+		var args struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.Validate(args.Path)
+	case "spine_clone_animation":
+		var args spineops.AnimationOptions
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.GenerateAnimation(args)
+	case "spine_patch_project_animation":
+		var args spineops.ProjectAnimationOptions
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.PatchProjectAnimation(args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", call.Name)
 	}

@@ -3,7 +3,8 @@ package spineops
 
 import (
 	"bytes"
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +14,108 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	spineparser "github.com/neko233-com/spine233-file-parser"
 )
+
+// ProjectAnimationOptions controls direct .spine animation edits and optional
+// record renaming. The operation is preview-first and never overwrites input.
+type ProjectAnimationOptions struct {
+	InputPath       string                           `json:"inputPath"`
+	OutputPath      string                           `json:"outputPath,omitempty"`
+	Animation       string                           `json:"animation"`
+	TargetAnimation string                           `json:"targetAnimation,omitempty"`
+	EndBefore       string                           `json:"endBefore,omitempty"`
+	Edits           []spineparser.ProjectFloat32Edit `json:"edits"`
+	Apply           bool                             `json:"apply,omitempty"`
+	Overwrite       bool                             `json:"overwrite,omitempty"`
+}
+
+// ProjectAnimationResult reports a direct .spine preview or new project.
+type ProjectAnimationResult struct {
+	InputPath         string                                       `json:"inputPath"`
+	OutputPath        string                                       `json:"outputPath,omitempty"`
+	Applied           bool                                         `json:"applied"`
+	InputSHA256       string                                       `json:"inputSha256"`
+	OutputSHA256      string                                       `json:"outputSha256"`
+	CompressedBytes   int                                          `json:"compressedBytes"`
+	UncompressedBytes int                                          `json:"uncompressedBytes"`
+	Patch             spineparser.ProjectAnimationFloatPatchReport `json:"patch"`
+}
+
+// PatchProjectAnimation previews or applies direct .spine float32 keyframe
+// edits without invoking Spine Editor.
+func PatchProjectAnimation(options ProjectAnimationOptions) (*ProjectAnimationResult, error) {
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	patched, report, err := spineparser.PatchProjectAnimationFloat32(
+		document,
+		spineparser.ProjectAnimationFloatPatch{
+			Animation:       options.Animation,
+			TargetAnimation: options.TargetAnimation,
+			EndBefore:       options.EndBefore,
+			Edits:           options.Edits,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := spineparser.SerializeProject(patched, spineparser.ProjectSerializeOptions{})
+	if err != nil {
+		return nil, err
+	}
+	verified, err := spineparser.DeserializeProject(encoded, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("verify serialized project: %w", err)
+	}
+	if !bytes.Equal(verified.Payload, patched.Payload) {
+		return nil, errors.New("verify serialized project: payload mismatch")
+	}
+
+	inputHash := sha256.Sum256(source)
+	outputHash := sha256.Sum256(encoded)
+	result := &ProjectAnimationResult{
+		InputPath:         absoluteInput,
+		Applied:           false,
+		InputSHA256:       hex.EncodeToString(inputHash[:]),
+		OutputSHA256:      hex.EncodeToString(outputHash[:]),
+		CompressedBytes:   len(encoded),
+		UncompressedBytes: len(patched.Payload),
+		Patch:             report,
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	if strings.TrimSpace(options.OutputPath) == "" {
+		return nil, errors.New("outputPath is required when apply=true")
+	}
+	absoluteOutput, err := filepath.Abs(options.OutputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf("outputPath already exists; set overwrite=true: %s", absoluteOutput)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	return result, nil
+}
 
 // FileInfo is a lightweight file detection result.
 type FileInfo struct {
@@ -199,140 +298,114 @@ func Inspect(options InspectOptions) (*spineparser.InspectFileResult, error) {
 	})
 }
 
-// ExportOptions controls licensed Spine Pro project export.
-type ExportOptions struct {
-	Path              string        `json:"path"`
-	OutputDirectory   string        `json:"outputDirectory,omitempty"`
-	Executable        string        `json:"executable,omitempty"`
-	ExportSettings    string        `json:"exportSettings,omitempty"`
-	EditorVersion     string        `json:"editorVersion,omitempty"`
-	Timeout           time.Duration `json:"-"`
-	TimeoutSeconds    int           `json:"timeoutSeconds,omitempty"`
-	OmitDecodedBinary bool          `json:"omitDecodedBinary,omitempty"`
-}
-
-// ExportReport points agents at exported JSON without returning entire projects.
-type ExportReport struct {
-	SourcePath      string                          `json:"sourcePath"`
-	OutputDirectory string                          `json:"outputDirectory"`
-	Documents       []Summary                       `json:"documents"`
-	DocumentPaths   []string                        `json:"documentPaths"`
-	Inspection      spineparser.ProjectInspection   `json:"inspection"`
-	Artifacts       spineparser.DiagnosticArtifacts `json:"artifacts"`
-	Stdout          string                          `json:"stdout,omitempty"`
-	Stderr          string                          `json:"stderr,omitempty"`
-}
-
-// Export converts .spine to semantic JSON through installed licensed Spine Pro.
-func Export(ctx context.Context, options ExportOptions) (*ExportReport, error) {
-	if strings.TrimSpace(options.Path) == "" {
-		return nil, errors.New("path is required")
-	}
-	timeout, err := normalizeTimeout(options.Timeout, options.TimeoutSeconds)
-	if err != nil {
-		return nil, err
-	}
-	result, err := spineparser.ExportProject(ctx, options.Path, spineparser.ExportOptions{
-		InspectFileOptions: spineparser.InspectFileOptions{
-			OutputDirectory:   options.OutputDirectory,
-			OmitDecodedBinary: options.OmitDecodedBinary,
-		},
-		Executable:     options.Executable,
-		ExportSettings: options.ExportSettings,
-		EditorVersion:  options.EditorVersion,
-		Timeout:        timeout,
-	})
-	if err != nil {
-		return nil, err
-	}
-	report := &ExportReport{
-		SourcePath:      options.Path,
-		OutputDirectory: result.OutputDirectory,
-		Inspection:      result.Inspection,
-		Artifacts:       result.Artifacts,
-		Stdout:          result.Stdout,
-		Stderr:          result.Stderr,
-	}
-	for _, document := range result.Documents {
-		report.DocumentPaths = append(report.DocumentPaths, document.Path)
-		report.Documents = append(report.Documents, *summarizeJSON(document.Path, document.Data))
-	}
-	return report, nil
-}
-
-// ImportOptions controls semantic JSON import through licensed Spine Pro.
-type ImportOptions struct {
-	JSONPath          string        `json:"jsonPath"`
-	ProjectPath       string        `json:"projectPath"`
-	OutputDirectory   string        `json:"outputDirectory,omitempty"`
-	Executable        string        `json:"executable,omitempty"`
-	EditorVersion     string        `json:"editorVersion,omitempty"`
-	SkeletonName      string        `json:"skeletonName,omitempty"`
-	Indent            string        `json:"indent,omitempty"`
-	Timeout           time.Duration `json:"-"`
-	TimeoutSeconds    int           `json:"timeoutSeconds,omitempty"`
-	OmitDecodedBinary bool          `json:"omitDecodedBinary,omitempty"`
-	Overwrite         bool          `json:"overwrite,omitempty"`
-}
-
-// Import converts semantic Spine JSON to a .spine project.
-func Import(ctx context.Context, options ImportOptions) (*spineparser.ImportResult, error) {
-	if strings.TrimSpace(options.JSONPath) == "" {
-		return nil, errors.New("jsonPath is required")
-	}
-	if strings.TrimSpace(options.ProjectPath) == "" {
-		return nil, errors.New("projectPath is required")
-	}
-	if !options.Overwrite {
-		if _, err := os.Stat(options.ProjectPath); err == nil {
-			return nil, fmt.Errorf("projectPath already exists; set overwrite=true: %s", options.ProjectPath)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-	}
-	source, err := os.ReadFile(options.JSONPath)
-	if err != nil {
-		return nil, err
-	}
-	document, err := spineparser.ParseJSON(source)
-	if err != nil {
-		return nil, err
-	}
-	timeout, err := normalizeTimeout(options.Timeout, options.TimeoutSeconds)
-	if err != nil {
-		return nil, err
-	}
-	return spineparser.ImportProject(ctx, document, options.ProjectPath, spineparser.ImportOptions{
-		InspectFileOptions: spineparser.InspectFileOptions{
-			OutputDirectory:   options.OutputDirectory,
-			OmitDecodedBinary: options.OmitDecodedBinary,
-		},
-		Executable:    options.Executable,
-		EditorVersion: options.EditorVersion,
-		SkeletonName:  options.SkeletonName,
-		Timeout:       timeout,
-		JSON:          spineparser.JSONSerializeOptions{Indent: options.Indent},
-	})
-}
-
-func normalizeTimeout(timeout time.Duration, seconds int) (time.Duration, error) {
-	if timeout != 0 {
-		return timeout, nil
-	}
-	if seconds == 0 {
-		return 2 * time.Minute, nil
-	}
-	if seconds < 1 || seconds > 3600 {
-		return 0, errors.New("timeoutSeconds must be between 1 and 3600")
-	}
-	return time.Duration(seconds) * time.Second, nil
-}
-
 // QueryResult is a JSON Pointer query result.
 type QueryResult struct {
 	Path    string `json:"path"`
 	Pointer string `json:"pointer"`
 	Value   any    `json:"value"`
+}
+
+// Analyze returns a deep, version-tolerant Spine JSON feature inventory.
+func Analyze(path string) (*spineparser.ProjectAnalysis, error) {
+	_, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return spineparser.AnalyzeJSON(source)
+}
+
+// Validate returns stable cross-version reference validation for Spine JSON.
+func Validate(path string) (*spineparser.ValidationReport, error) {
+	_, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return spineparser.ValidateSemanticJSON(source)
+}
+
+// AnimationOptions controls preview-first animation generation.
+type AnimationOptions struct {
+	InputPath       string                   `json:"inputPath"`
+	OutputPath      string                   `json:"outputPath,omitempty"`
+	Source          string                   `json:"source"`
+	Target          string                   `json:"target"`
+	TimeScale       float64                  `json:"timeScale,omitempty"`
+	BoneMotions     []spineparser.BoneMotion `json:"boneMotions,omitempty"`
+	MarkerEvent     string                   `json:"markerEvent,omitempty"`
+	ReplaceExisting bool                     `json:"replaceExisting,omitempty"`
+	Apply           bool                     `json:"apply,omitempty"`
+	Overwrite       bool                     `json:"overwrite,omitempty"`
+}
+
+// AnimationResult describes generated semantic data and optional output.
+type AnimationResult struct {
+	InputPath  string                            `json:"inputPath"`
+	OutputPath string                            `json:"outputPath,omitempty"`
+	Applied    bool                              `json:"applied"`
+	Animation  *spineparser.CloneAnimationResult `json:"animation"`
+	Analysis   *spineparser.ProjectAnalysis      `json:"analysis"`
+	Validation *spineparser.ValidationReport     `json:"validation"`
+}
+
+// GenerateAnimation clones and edits one animation. It never overwrites input.
+func GenerateAnimation(options AnimationOptions) (*AnimationResult, error) {
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	encoded, animation, err := spineparser.CloneAnimation(source, spineparser.CloneAnimationOptions{
+		Source:          options.Source,
+		Target:          options.Target,
+		TimeScale:       options.TimeScale,
+		BoneMotions:     options.BoneMotions,
+		MarkerEvent:     options.MarkerEvent,
+		ReplaceExisting: options.ReplaceExisting,
+		Indent:          "  ",
+	})
+	if err != nil {
+		return nil, err
+	}
+	analysis, err := spineparser.AnalyzeJSON(encoded)
+	if err != nil {
+		return nil, err
+	}
+	validation, err := spineparser.ValidateSemanticJSON(encoded)
+	if err != nil {
+		return nil, err
+	}
+	result := &AnimationResult{
+		InputPath:  absoluteInput,
+		Applied:    false,
+		Animation:  animation,
+		Analysis:   analysis,
+		Validation: validation,
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	if strings.TrimSpace(options.OutputPath) == "" {
+		return nil, errors.New("outputPath is required when apply=true")
+	}
+	absoluteOutput, err := filepath.Abs(options.OutputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf("outputPath already exists; set overwrite=true: %s", absoluteOutput)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	return result, nil
 }
 
 // QueryJSON reads a bounded subtree using RFC 6901 JSON Pointer syntax.

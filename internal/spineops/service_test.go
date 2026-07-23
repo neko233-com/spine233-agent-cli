@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	spineparser "github.com/neko233-com/spine233-file-parser"
 )
 
 const testJSON = `{
@@ -111,5 +113,64 @@ func TestQueryJSONSizeLimit(t *testing.T) {
 	_, err := QueryJSON(writeTestJSON(t), "/bones", 2)
 	if err == nil {
 		t.Fatal("expected size limit error")
+	}
+}
+
+func TestPatchProjectAnimationOfficialHero(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	output := filepath.Join(t.TempDir(), "hero-agent.spine")
+	options := ProjectAnimationOptions{
+		InputPath:  input,
+		OutputPath: output,
+		Animation:  "attack",
+		EndBefore:  "crouch",
+		Edits: []spineparser.ProjectFloat32Edit{
+			{From: 13.22, To: 24, ExpectedMatches: 1},
+		},
+	}
+	preview, err := PatchProjectAnimation(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied || preview.OutputSHA256 == preview.InputSHA256 {
+		t.Fatalf("unexpected preview: %#v", preview)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("preview wrote output: %v", err)
+	}
+
+	options.Apply = true
+	applied, err := PatchProjectAnimation(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || len(applied.Patch.Changes) != 1 {
+		t.Fatalf("unexpected apply result: %#v", applied)
+	}
+	inputBytes, err := os.ReadFile(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputBytes, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := spineparser.DeserializeProject(inputBytes, spineparser.InspectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := spineparser.DeserializeProject(outputBytes, spineparser.InspectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Payload) != len(after.Payload) {
+		t.Fatalf("payload length changed: %d -> %d", len(before.Payload), len(after.Payload))
+	}
+	offset := applied.Patch.Changes[0].Offsets[0]
+	for index := range before.Payload {
+		if before.Payload[index] != after.Payload[index] &&
+			(index < offset || index >= offset+4) {
+			t.Fatalf("unexpected payload change at %d", index)
+		}
 	}
 }
