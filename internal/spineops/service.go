@@ -444,6 +444,83 @@ type ProjectTransformRewriteOptions struct {
 	Overwrite       bool                                          `json:"overwrite,omitempty"`
 }
 
+// ProjectTransformRecipe is a complete editable recipe generated from an
+// existing .spine animation.
+type ProjectTransformRecipe struct {
+	SchemaVersion   string                                        `json:"schemaVersion"`
+	InputPath       string                                        `json:"inputPath"`
+	OutputPath      string                                        `json:"outputPath"`
+	Animation       string                                        `json:"animation"`
+	TargetAnimation string                                        `json:"targetAnimation"`
+	Timelines       []spineparser.ProjectTransformTimelineRewrite `json:"timelines"`
+}
+
+// BuildProjectTransformRecipe returns a complete fixed-topology recipe for
+// Codex to edit. It does not write any files.
+func BuildProjectTransformRecipe(
+	path string,
+	animation string,
+	targetAnimation string,
+	outputPath string,
+	includeCurves bool,
+) (*ProjectTransformRecipe, error) {
+	listed, err := ListProjectTransformTimelines(path, animation)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(targetAnimation) == "" {
+		targetAnimation = animation + "-agent"
+	}
+	if strings.TrimSpace(outputPath) == "" {
+		extension := filepath.Ext(listed.Path)
+		stem := strings.TrimSuffix(filepath.Base(listed.Path), extension)
+		if strings.HasSuffix(strings.ToLower(stem), "-human") {
+			stem = stem[:len(stem)-len("-human")]
+		}
+		outputPath = filepath.Join(filepath.Dir(listed.Path), stem+"-agent"+extension)
+	} else {
+		outputPath, err = filepath.Abs(outputPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	timelines := make(
+		[]spineparser.ProjectTransformTimelineRewrite,
+		0,
+		len(listed.Directory.Timelines),
+	)
+	for _, timeline := range listed.Directory.Timelines {
+		keys := make(
+			[]spineparser.ProjectTransformKeySpec,
+			0,
+			len(timeline.Keys),
+		)
+		for _, key := range timeline.Keys {
+			spec := spineparser.ProjectTransformKeySpec{
+				Frame:  key.Frame,
+				Values: append([]float32(nil), key.Values...),
+			}
+			if includeCurves {
+				spec.Curves = append([][4]float32(nil), key.Curves...)
+			}
+			keys = append(keys, spec)
+		}
+		timelines = append(timelines, spineparser.ProjectTransformTimelineRewrite{
+			BoneReference: timeline.BoneReference,
+			Timeline:      timeline.Type,
+			Keys:          keys,
+		})
+	}
+	return &ProjectTransformRecipe{
+		SchemaVersion:   "spine233.transform-rewrite/v1",
+		InputPath:       listed.Path,
+		OutputPath:      outputPath,
+		Animation:       animation,
+		TargetAnimation: targetAnimation,
+		Timelines:       timelines,
+	}, nil
+}
+
 // RewriteProjectTransform previews or applies complete transform timeline
 // declarations without invoking Spine Editor.
 func RewriteProjectTransform(

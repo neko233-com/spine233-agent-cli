@@ -486,6 +486,46 @@ func TestRewriteProjectTransformOfficialHero(t *testing.T) {
 	t.Fatal("rewritten translate timeline not found")
 }
 
+func TestBuildProjectTransformRecipeOfficialHero(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	recipe, err := BuildProjectTransformRecipe(
+		input,
+		"attack",
+		"",
+		"",
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recipe.SchemaVersion != "spine233.transform-rewrite/v1" ||
+		recipe.TargetAnimation != "attack-agent" ||
+		filepath.Base(recipe.OutputPath) != "hero-agent.spine" ||
+		len(recipe.Timelines) != 25 {
+		t.Fatalf("recipe = %#v", recipe)
+	}
+	for _, timeline := range recipe.Timelines {
+		for _, key := range timeline.Keys {
+			if len(key.Curves) != 0 {
+				t.Fatal("curves included without includeCurves")
+			}
+		}
+	}
+	withCurves, err := BuildProjectTransformRecipe(
+		input,
+		"attack",
+		"",
+		"",
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withCurves.Timelines[0].Keys[0].Curves) == 0 {
+		t.Fatal("includeCurves did not include curve controls")
+	}
+}
+
 func mapsEqual(left, right map[string]int) bool {
 	if len(left) != len(right) {
 		return false

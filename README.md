@@ -23,7 +23,8 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - Spine JSON 深度分析、引用验证、查询、Patch。
 - Spine JSON 动画克隆、重定时、骨骼时间线替换。
 - 声明式重写整条 transform 时间线，适合 Codex 生成完整动作。
-- 15 个 stdio MCP 工具。
+- 自动从已有动画生成 Codex 可编辑完整 recipe。
+- 16 个 stdio MCP 工具。
 
 ## 安装
 
@@ -42,6 +43,20 @@ spine233-agent-cli summarize --file hero.spine
 spine233-agent-cli animations --file hero.spine
 spine233-agent-cli rotate-timelines --file hero.spine --animation attack
 spine233-agent-cli transform-timelines --file hero.spine --animation attack
+spine233-agent-cli scaffold-project-transform \
+  --file hero-human.spine \
+  --animation attack > attack-agent-recipe.json
+```
+
+Codex 工作流：生成 recipe → 修改 `timelines[].keys` → 预览 → apply。
+
+```bash
+spine233-agent-cli rewrite-project-transform \
+  --recipe attack-agent-recipe.json
+
+spine233-agent-cli rewrite-project-transform \
+  --recipe attack-agent-recipe.json \
+  --apply
 ```
 
 语义修改 `.spine` rotate 动画，默认只预览：
@@ -126,6 +141,7 @@ MCP 工具：
 | `spine_list_project_animations` | 直接列出 `.spine` 动画目录 |
 | `spine_list_project_rotate_timelines` | 语义列出 rotate 时间线 |
 | `spine_list_project_transform_timelines` | 列出骨骼变换时间线 |
+| `spine_build_project_transform_recipe` | 从已有动画生成完整 recipe |
 | `spine_patch_project_animation` | 直接修改 `.spine` 动画关键帧 |
 | `spine_patch_project_rotate` | 语义修改 rotate 关键帧 |
 | `spine_patch_project_transform` | 修改骨骼变换关键帧 |

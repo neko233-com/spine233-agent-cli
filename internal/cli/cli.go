@@ -71,6 +71,36 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 		}
 		value, err := spineops.ListProjectTransformTimelines(*path, *animation)
 		return printJSONMust(output, value, err)
+	case "scaffold-project-transform":
+		flags := newFlags("scaffold-project-transform", errorOutput)
+		path := flags.String("file", "", "local .spine project")
+		animation := flags.String("animation", "", "animation record name")
+		targetAnimation := flags.String(
+			"target-animation",
+			"",
+			"target animation; defaults to {animation}-agent",
+		)
+		outputPath := flags.String(
+			"output",
+			"",
+			"recipe output project path; defaults to sibling *-agent.spine",
+		)
+		includeCurves := flags.Bool(
+			"include-curves",
+			false,
+			"include all raw curve controls",
+		)
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		value, err := spineops.BuildProjectTransformRecipe(
+			*path,
+			*animation,
+			*targetAnimation,
+			*outputPath,
+			*includeCurves,
+		)
+		return printJSONMust(output, value, err)
 	case "inspect":
 		flags := newFlags("inspect", errorOutput)
 		path := flags.String("file", "", "local .spine project")
@@ -427,6 +457,7 @@ Usage:
   spine233-agent-cli animations --file character.spine
   spine233-agent-cli rotate-timelines --file character.spine --animation attack
   spine233-agent-cli transform-timelines --file character.spine --animation attack
+  spine233-agent-cli scaffold-project-transform --file character.spine --animation attack
   spine233-agent-cli inspect   --file character.spine [--output-dir DIR]
   spine233-agent-cli query     --file character.json --pointer /animations/walk
   spine233-agent-cli analyze   --file character.json

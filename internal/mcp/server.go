@@ -134,6 +134,16 @@ func tools() []map[string]any {
 			}, "path", "animation"),
 		},
 		{
+			"name": "spine_build_project_transform_recipe", "description": "Build a complete editable rewrite recipe from an existing .spine animation. Defaults target to {animation}-agent and output to sibling *-agent.spine. Does not write.",
+			"inputSchema": schema(map[string]any{
+				"path":            path,
+				"animation":       map[string]any{"type": "string"},
+				"targetAnimation": map[string]any{"type": "string"},
+				"outputPath":      map[string]any{"type": "string"},
+				"includeCurves":   map[string]any{"type": "boolean", "default": false},
+			}, "path", "animation"),
+		},
+		{
 			"name": "spine_query_json", "description": "Read a bounded semantic subtree from Spine JSON using RFC 6901 JSON Pointer, for example /animations/walk.",
 			"inputSchema": schema(map[string]any{
 				"path":     map[string]any{"type": "string", "description": "Local Spine JSON path"},
@@ -369,6 +379,24 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.ListProjectTransformTimelines(args.Path, args.Animation)
+	case "spine_build_project_transform_recipe":
+		var args struct {
+			Path            string `json:"path"`
+			Animation       string `json:"animation"`
+			TargetAnimation string `json:"targetAnimation"`
+			OutputPath      string `json:"outputPath"`
+			IncludeCurves   bool   `json:"includeCurves"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.BuildProjectTransformRecipe(
+			args.Path,
+			args.Animation,
+			args.TargetAnimation,
+			args.OutputPath,
+			args.IncludeCurves,
+		)
 	case "spine_query_json":
 		var args struct {
 			Path     string `json:"path"`
