@@ -1,0 +1,733 @@
+// Package spineops provides bounded, agent-friendly Spine file operations.
+package spineops
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	spineparser "github.com/neko233-com/spine233-file-parser"
+)
+
+// FileInfo is a lightweight file detection result.
+type FileInfo struct {
+	Path string               `json:"path"`
+	Kind spineparser.FileKind `json:"kind"`
+	Size int64                `json:"size"`
+}
+
+// Detect identifies a local Spine file without invoking Spine Editor.
+func Detect(path string) (*FileInfo, error) {
+	absolute, source, info, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return &FileInfo{Path: absolute, Kind: spineparser.Detect(source), Size: info.Size()}, nil
+}
+
+// Summary is a compact, token-efficient view of a Spine file.
+type Summary struct {
+	Path           string               `json:"path"`
+	Kind           spineparser.FileKind `json:"kind"`
+	SpineVersion   string               `json:"spineVersion,omitempty"`
+	Hash           string               `json:"hash,omitempty"`
+	Width          float64              `json:"width,omitempty"`
+	Height         float64              `json:"height,omitempty"`
+	Bones          []string             `json:"bones,omitempty"`
+	Slots          []string             `json:"slots,omitempty"`
+	Skins          []string             `json:"skins,omitempty"`
+	Events         []string             `json:"events,omitempty"`
+	Animations     []string             `json:"animations,omitempty"`
+	ProjectStrings []string             `json:"projectStrings,omitempty"`
+	Counts         map[string]int       `json:"counts,omitempty"`
+	Truncated      map[string]bool      `json:"truncated,omitempty"`
+}
+
+const (
+	maxSummaryNames  = 500
+	defaultQuerySize = 1024 * 1024
+)
+
+// Summarize reads .spine metadata, .skel headers, or semantic Spine JSON.
+// Private .spine semantics require Export; this method does not launch Spine.
+func Summarize(path string) (*Summary, error) {
+	absolute, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	kind := spineparser.Detect(source)
+	switch kind {
+	case spineparser.FileProject:
+		inspection, err := spineparser.InspectProject(source, spineparser.InspectOptions{})
+		if err != nil {
+			return nil, err
+		}
+		result := &Summary{
+			Path:         absolute,
+			Kind:         kind,
+			SpineVersion: inspection.SpineVersion,
+			Counts:       map[string]int{"projectStrings": len(inspection.Strings)},
+		}
+		result.ProjectStrings, result.Truncated = boundedNames(inspection.Strings, "projectStrings", result.Truncated)
+		return result, nil
+	case spineparser.FileSkeletonBinary:
+		inspection, err := spineparser.InspectSkeletonBinary(source)
+		if err != nil {
+			return nil, err
+		}
+		return &Summary{
+			Path:         absolute,
+			Kind:         kind,
+			SpineVersion: inspection.SpineVersion,
+			Hash:         inspection.Hash,
+			Width:        float64(inspection.Width),
+			Height:       float64(inspection.Height),
+		}, nil
+	case spineparser.FileSkeletonJSON:
+		document, err := spineparser.ParseJSON(source)
+		if err != nil {
+			return nil, err
+		}
+		return summarizeJSON(absolute, document), nil
+	default:
+		return nil, fmt.Errorf("unsupported or invalid Spine file: %s", absolute)
+	}
+}
+
+func summarizeJSON(path string, document *spineparser.SpineJSON) *Summary {
+	result := &Summary{Path: path, Kind: spineparser.FileSkeletonJSON}
+	if document.Skeleton != nil {
+		result.SpineVersion = document.Skeleton.Spine
+		result.Hash = document.Skeleton.Hash
+		result.Width = document.Skeleton.Width
+		result.Height = document.Skeleton.Height
+	}
+	bones := make([]string, 0, len(document.Bones))
+	for _, bone := range document.Bones {
+		bones = append(bones, bone.Name)
+	}
+	slots := make([]string, 0, len(document.Slots))
+	for _, slot := range document.Slots {
+		slots = append(slots, slot.Name)
+	}
+	animations := sortedKeys(document.Animations)
+	events := sortedKeys(document.Events)
+	skins := skinNames(document.Skins)
+	result.Counts = map[string]int{
+		"bones":      len(bones),
+		"slots":      len(slots),
+		"skins":      len(skins),
+		"events":     len(events),
+		"animations": len(animations),
+	}
+	result.Bones, result.Truncated = boundedNames(bones, "bones", result.Truncated)
+	result.Slots, result.Truncated = boundedNames(slots, "slots", result.Truncated)
+	result.Skins, result.Truncated = boundedNames(skins, "skins", result.Truncated)
+	result.Events, result.Truncated = boundedNames(events, "events", result.Truncated)
+	result.Animations, result.Truncated = boundedNames(animations, "animations", result.Truncated)
+	return result
+}
+
+func boundedNames(values []string, key string, truncated map[string]bool) ([]string, map[string]bool) {
+	if len(values) <= maxSummaryNames {
+		return values, truncated
+	}
+	if truncated == nil {
+		truncated = make(map[string]bool)
+	}
+	truncated[key] = true
+	return values[:maxSummaryNames], truncated
+}
+
+func sortedKeys[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func skinNames(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) == nil {
+		return sortedKeys(object)
+	}
+	var array []struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(raw, &array) == nil {
+		names := make([]string, 0, len(array))
+		for _, skin := range array {
+			if skin.Name != "" {
+				names = append(names, skin.Name)
+			}
+		}
+		sort.Strings(names)
+		return names
+	}
+	return nil
+}
+
+// InspectOptions controls diagnostic project inspection.
+type InspectOptions struct {
+	Path              string `json:"path"`
+	OutputDirectory   string `json:"outputDirectory,omitempty"`
+	OmitDecodedBinary bool   `json:"omitDecodedBinary,omitempty"`
+}
+
+// Inspect inspects a private .spine project and keeps diagnostic artifacts.
+func Inspect(options InspectOptions) (*spineparser.InspectFileResult, error) {
+	if strings.TrimSpace(options.Path) == "" {
+		return nil, errors.New("path is required")
+	}
+	return spineparser.InspectFile(options.Path, spineparser.InspectFileOptions{
+		OutputDirectory:   options.OutputDirectory,
+		OmitDecodedBinary: options.OmitDecodedBinary,
+	})
+}
+
+// ExportOptions controls licensed Spine Pro project export.
+type ExportOptions struct {
+	Path              string        `json:"path"`
+	OutputDirectory   string        `json:"outputDirectory,omitempty"`
+	Executable        string        `json:"executable,omitempty"`
+	ExportSettings    string        `json:"exportSettings,omitempty"`
+	EditorVersion     string        `json:"editorVersion,omitempty"`
+	Timeout           time.Duration `json:"-"`
+	TimeoutSeconds    int           `json:"timeoutSeconds,omitempty"`
+	OmitDecodedBinary bool          `json:"omitDecodedBinary,omitempty"`
+}
+
+// ExportReport points agents at exported JSON without returning entire projects.
+type ExportReport struct {
+	SourcePath      string                          `json:"sourcePath"`
+	OutputDirectory string                          `json:"outputDirectory"`
+	Documents       []Summary                       `json:"documents"`
+	DocumentPaths   []string                        `json:"documentPaths"`
+	Inspection      spineparser.ProjectInspection   `json:"inspection"`
+	Artifacts       spineparser.DiagnosticArtifacts `json:"artifacts"`
+	Stdout          string                          `json:"stdout,omitempty"`
+	Stderr          string                          `json:"stderr,omitempty"`
+}
+
+// Export converts .spine to semantic JSON through installed licensed Spine Pro.
+func Export(ctx context.Context, options ExportOptions) (*ExportReport, error) {
+	if strings.TrimSpace(options.Path) == "" {
+		return nil, errors.New("path is required")
+	}
+	timeout, err := normalizeTimeout(options.Timeout, options.TimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	result, err := spineparser.ExportProject(ctx, options.Path, spineparser.ExportOptions{
+		InspectFileOptions: spineparser.InspectFileOptions{
+			OutputDirectory:   options.OutputDirectory,
+			OmitDecodedBinary: options.OmitDecodedBinary,
+		},
+		Executable:     options.Executable,
+		ExportSettings: options.ExportSettings,
+		EditorVersion:  options.EditorVersion,
+		Timeout:        timeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+	report := &ExportReport{
+		SourcePath:      options.Path,
+		OutputDirectory: result.OutputDirectory,
+		Inspection:      result.Inspection,
+		Artifacts:       result.Artifacts,
+		Stdout:          result.Stdout,
+		Stderr:          result.Stderr,
+	}
+	for _, document := range result.Documents {
+		report.DocumentPaths = append(report.DocumentPaths, document.Path)
+		report.Documents = append(report.Documents, *summarizeJSON(document.Path, document.Data))
+	}
+	return report, nil
+}
+
+// ImportOptions controls semantic JSON import through licensed Spine Pro.
+type ImportOptions struct {
+	JSONPath          string        `json:"jsonPath"`
+	ProjectPath       string        `json:"projectPath"`
+	OutputDirectory   string        `json:"outputDirectory,omitempty"`
+	Executable        string        `json:"executable,omitempty"`
+	EditorVersion     string        `json:"editorVersion,omitempty"`
+	SkeletonName      string        `json:"skeletonName,omitempty"`
+	Indent            string        `json:"indent,omitempty"`
+	Timeout           time.Duration `json:"-"`
+	TimeoutSeconds    int           `json:"timeoutSeconds,omitempty"`
+	OmitDecodedBinary bool          `json:"omitDecodedBinary,omitempty"`
+	Overwrite         bool          `json:"overwrite,omitempty"`
+}
+
+// Import converts semantic Spine JSON to a .spine project.
+func Import(ctx context.Context, options ImportOptions) (*spineparser.ImportResult, error) {
+	if strings.TrimSpace(options.JSONPath) == "" {
+		return nil, errors.New("jsonPath is required")
+	}
+	if strings.TrimSpace(options.ProjectPath) == "" {
+		return nil, errors.New("projectPath is required")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(options.ProjectPath); err == nil {
+			return nil, fmt.Errorf("projectPath already exists; set overwrite=true: %s", options.ProjectPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	source, err := os.ReadFile(options.JSONPath)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.ParseJSON(source)
+	if err != nil {
+		return nil, err
+	}
+	timeout, err := normalizeTimeout(options.Timeout, options.TimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	return spineparser.ImportProject(ctx, document, options.ProjectPath, spineparser.ImportOptions{
+		InspectFileOptions: spineparser.InspectFileOptions{
+			OutputDirectory:   options.OutputDirectory,
+			OmitDecodedBinary: options.OmitDecodedBinary,
+		},
+		Executable:    options.Executable,
+		EditorVersion: options.EditorVersion,
+		SkeletonName:  options.SkeletonName,
+		Timeout:       timeout,
+		JSON:          spineparser.JSONSerializeOptions{Indent: options.Indent},
+	})
+}
+
+func normalizeTimeout(timeout time.Duration, seconds int) (time.Duration, error) {
+	if timeout != 0 {
+		return timeout, nil
+	}
+	if seconds == 0 {
+		return 2 * time.Minute, nil
+	}
+	if seconds < 1 || seconds > 3600 {
+		return 0, errors.New("timeoutSeconds must be between 1 and 3600")
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
+// QueryResult is a JSON Pointer query result.
+type QueryResult struct {
+	Path    string `json:"path"`
+	Pointer string `json:"pointer"`
+	Value   any    `json:"value"`
+}
+
+// QueryJSON reads a bounded subtree using RFC 6901 JSON Pointer syntax.
+func QueryJSON(path, pointer string, requestedMaxBytes ...int) (*QueryResult, error) {
+	absolute, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	root, err := decodeAny(source)
+	if err != nil {
+		return nil, fmt.Errorf("decode JSON: %w", err)
+	}
+	value, err := lookup(root, pointer)
+	if err != nil {
+		return nil, err
+	}
+	maxBytes := defaultQuerySize
+	if len(requestedMaxBytes) > 0 {
+		maxBytes = requestedMaxBytes[0]
+	}
+	if maxBytes < 1 || maxBytes > 16*1024*1024 {
+		return nil, errors.New("maxBytes must be between 1 and 16777216")
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) > maxBytes {
+		return nil, fmt.Errorf("JSON Pointer result is %d bytes, exceeds maxBytes %d; query a narrower pointer", len(encoded), maxBytes)
+	}
+	return &QueryResult{Path: absolute, Pointer: pointer, Value: value}, nil
+}
+
+// PatchOperation is an RFC 6902-style add, replace, or remove operation.
+type PatchOperation struct {
+	Op    string          `json:"op"`
+	Path  string          `json:"path"`
+	Value json.RawMessage `json:"value,omitempty"`
+}
+
+// PatchOptions controls preview-first semantic JSON editing.
+type PatchOptions struct {
+	InputPath  string           `json:"inputPath"`
+	OutputPath string           `json:"outputPath,omitempty"`
+	Operations []PatchOperation `json:"operations"`
+	Apply      bool             `json:"apply,omitempty"`
+	Overwrite  bool             `json:"overwrite,omitempty"`
+	Indent     string           `json:"indent,omitempty"`
+}
+
+// PatchChange records one before/after edit for agent review.
+type PatchChange struct {
+	Op     string `json:"op"`
+	Path   string `json:"path"`
+	Before any    `json:"before,omitempty"`
+	After  any    `json:"after,omitempty"`
+}
+
+// PatchResult reports a preview or newly written JSON file.
+type PatchResult struct {
+	InputPath  string        `json:"inputPath"`
+	OutputPath string        `json:"outputPath,omitempty"`
+	Applied    bool          `json:"applied"`
+	Changes    []PatchChange `json:"changes"`
+	Summary    *Summary      `json:"summary"`
+}
+
+// PatchJSON previews or applies JSON patches. It never overwrites its input.
+func PatchJSON(options PatchOptions) (*PatchResult, error) {
+	if len(options.Operations) == 0 {
+		return nil, errors.New("at least one patch operation is required")
+	}
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := decodeAny(source)
+	if err != nil {
+		return nil, fmt.Errorf("decode JSON: %w", err)
+	}
+	changes := make([]PatchChange, 0, len(options.Operations))
+	for index, operation := range options.Operations {
+		var change PatchChange
+		root, change, err = applyOperation(root, operation)
+		if err != nil {
+			return nil, fmt.Errorf("operation %d: %w", index, err)
+		}
+		changes = append(changes, change)
+	}
+	indent := options.Indent
+	if indent == "" {
+		indent = "  "
+	}
+	encoded, err := json.MarshalIndent(root, "", indent)
+	if err != nil {
+		return nil, err
+	}
+	encoded = append(encoded, '\n')
+	document, err := spineparser.ParseJSON(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("patched document is not valid Spine JSON: %w", err)
+	}
+	result := &PatchResult{
+		InputPath: absoluteInput,
+		Applied:   false,
+		Changes:   changes,
+		Summary:   summarizeJSON(absoluteInput, document),
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	if strings.TrimSpace(options.OutputPath) == "" {
+		return nil, errors.New("outputPath is required when apply=true")
+	}
+	absoluteOutput, err := filepath.Abs(options.OutputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf("outputPath already exists; set overwrite=true: %s", absoluteOutput)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	result.Summary.Path = absoluteOutput
+	return result, nil
+}
+
+func decodeAny(source []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(source))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("multiple JSON values")
+		}
+		return nil, err
+	}
+	return value, nil
+}
+
+func lookup(root any, pointer string) (any, error) {
+	tokens, err := pointerTokens(pointer)
+	if err != nil {
+		return nil, err
+	}
+	current := root
+	for _, token := range tokens {
+		switch value := current.(type) {
+		case map[string]any:
+			next, ok := value[token]
+			if !ok {
+				return nil, fmt.Errorf("JSON Pointer key not found: %s", token)
+			}
+			current = next
+		case []any:
+			index, err := arrayIndex(token, len(value), false)
+			if err != nil {
+				return nil, err
+			}
+			current = value[index]
+		default:
+			return nil, fmt.Errorf("JSON Pointer traverses scalar at %q", token)
+		}
+	}
+	return current, nil
+}
+
+func applyOperation(root any, operation PatchOperation) (any, PatchChange, error) {
+	op := strings.ToLower(strings.TrimSpace(operation.Op))
+	if op != "add" && op != "replace" && op != "remove" {
+		return root, PatchChange{}, fmt.Errorf("unsupported op %q", operation.Op)
+	}
+	tokens, err := pointerTokens(operation.Path)
+	if err != nil {
+		return root, PatchChange{}, err
+	}
+	var after any
+	if op != "remove" {
+		if len(operation.Value) == 0 {
+			return root, PatchChange{}, fmt.Errorf("%s requires value", op)
+		}
+		after, err = decodeAny(operation.Value)
+		if err != nil {
+			return root, PatchChange{}, fmt.Errorf("decode value: %w", err)
+		}
+	}
+	change := PatchChange{Op: op, Path: operation.Path, After: after}
+	if len(tokens) == 0 {
+		if op == "remove" {
+			return root, PatchChange{}, errors.New("cannot remove document root")
+		}
+		change.Before = root
+		return after, change, nil
+	}
+	parentPointer := ""
+	if len(tokens) > 1 {
+		encoded := make([]string, len(tokens)-1)
+		for index, token := range tokens[:len(tokens)-1] {
+			encoded[index] = strings.ReplaceAll(strings.ReplaceAll(token, "~", "~0"), "/", "~1")
+		}
+		parentPointer = "/" + strings.Join(encoded, "/")
+	}
+	parent, err := lookup(root, parentPointer)
+	if err != nil {
+		return root, PatchChange{}, err
+	}
+	key := tokens[len(tokens)-1]
+	switch value := parent.(type) {
+	case map[string]any:
+		before, exists := value[key]
+		if op != "add" && !exists {
+			return root, PatchChange{}, fmt.Errorf("JSON Pointer key not found: %s", key)
+		}
+		change.Before = before
+		if op == "remove" {
+			delete(value, key)
+			change.After = nil
+		} else {
+			value[key] = after
+		}
+	case []any:
+		index, indexErr := arrayIndex(key, len(value), op == "add")
+		if indexErr != nil {
+			return root, PatchChange{}, indexErr
+		}
+		switch op {
+		case "add":
+			if index == len(value) {
+				value = append(value, after)
+			} else {
+				value = append(value[:index], append([]any{after}, value[index:]...)...)
+			}
+		case "replace":
+			change.Before = value[index]
+			value[index] = after
+		case "remove":
+			change.Before = value[index]
+			change.After = nil
+			value = append(value[:index], value[index+1:]...)
+		}
+		root, err = replaceContainer(root, tokens[:len(tokens)-1], value)
+		if err != nil {
+			return root, PatchChange{}, err
+		}
+	default:
+		return root, PatchChange{}, fmt.Errorf("patch parent is scalar: %s", parentPointer)
+	}
+	return root, change, nil
+}
+
+func replaceContainer(root any, tokens []string, replacement any) (any, error) {
+	if len(tokens) == 0 {
+		return replacement, nil
+	}
+	parentPointer := ""
+	if len(tokens) > 1 {
+		encoded := make([]string, len(tokens)-1)
+		for index, token := range tokens[:len(tokens)-1] {
+			encoded[index] = strings.ReplaceAll(strings.ReplaceAll(token, "~", "~0"), "/", "~1")
+		}
+		parentPointer = "/" + strings.Join(encoded, "/")
+	}
+	parent, err := lookup(root, parentPointer)
+	if err != nil {
+		return root, err
+	}
+	key := tokens[len(tokens)-1]
+	switch value := parent.(type) {
+	case map[string]any:
+		value[key] = replacement
+	case []any:
+		index, err := arrayIndex(key, len(value), false)
+		if err != nil {
+			return root, err
+		}
+		value[index] = replacement
+	default:
+		return root, errors.New("invalid JSON container")
+	}
+	return root, nil
+}
+
+func pointerTokens(pointer string) ([]string, error) {
+	if pointer == "" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(pointer, "/") {
+		return nil, errors.New("JSON Pointer must be empty or start with /")
+	}
+	raw := strings.Split(pointer[1:], "/")
+	tokens := make([]string, len(raw))
+	for index, token := range raw {
+		var output strings.Builder
+		for offset := 0; offset < len(token); offset++ {
+			if token[offset] != '~' {
+				output.WriteByte(token[offset])
+				continue
+			}
+			if offset+1 >= len(token) || (token[offset+1] != '0' && token[offset+1] != '1') {
+				return nil, fmt.Errorf("invalid JSON Pointer escape in %q", token)
+			}
+			offset++
+			if token[offset] == '0' {
+				output.WriteByte('~')
+			} else {
+				output.WriteByte('/')
+			}
+		}
+		tokens[index] = output.String()
+	}
+	return tokens, nil
+}
+
+func arrayIndex(token string, length int, allowEnd bool) (int, error) {
+	if token == "-" {
+		if allowEnd {
+			return length, nil
+		}
+		return 0, errors.New("'-' array index is only valid for add")
+	}
+	index, err := strconv.Atoi(token)
+	if err != nil || index < 0 || index >= length+boolInt(allowEnd) {
+		return 0, fmt.Errorf("invalid array index %q for length %d", token, length)
+	}
+	return index, nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func readFile(path string) (string, []byte, os.FileInfo, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", nil, nil, errors.New("path is required")
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, nil, fmt.Errorf("path is not a regular file: %s", absolute)
+	}
+	source, err := os.ReadFile(absolute)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return absolute, source, info, nil
+}
+
+func samePath(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := file.Name()
+	defer os.Remove(tempPath)
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Chmod(mode); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, path)
+}
