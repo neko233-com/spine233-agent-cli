@@ -54,3 +54,16 @@ func TestRunAnimateProjectRecipePreview(t *testing.T) {
 		t.Fatalf("result = %s", output.String())
 	}
 }
+
+func TestParseIntegerList(t *testing.T) {
+	values, err := parseIntegerList(" 6, 12,40 ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 3 || values[0] != 6 || values[1] != 12 || values[2] != 40 {
+		t.Fatalf("values = %#v", values)
+	}
+	if _, err := parseIntegerList("6,body"); err == nil {
+		t.Fatal("invalid integer accepted")
+	}
+}

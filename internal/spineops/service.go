@@ -484,6 +484,18 @@ type ProjectTransformRecipe struct {
 	Timelines       []spineparser.ProjectTransformTimelineRewrite `json:"timelines"`
 }
 
+// ProjectTransformRecipeBuildOptions controls recipe generation. Empty
+// filters select every transform timeline.
+type ProjectTransformRecipeBuildOptions struct {
+	Path            string
+	Animation       string
+	TargetAnimation string
+	OutputPath      string
+	IncludeCurves   bool
+	BoneReferences  []int
+	TimelineTypes   []string
+}
+
 // BuildProjectTransformRecipe returns a complete fixed-topology recipe for
 // Codex to edit. It does not write any files.
 func BuildProjectTransformRecipe(
@@ -493,13 +505,40 @@ func BuildProjectTransformRecipe(
 	outputPath string,
 	includeCurves bool,
 ) (*ProjectTransformRecipe, error) {
-	listed, err := ListProjectTransformTimelines(path, animation)
+	return BuildProjectTransformRecipeWithOptions(ProjectTransformRecipeBuildOptions{
+		Path:            path,
+		Animation:       animation,
+		TargetAnimation: targetAnimation,
+		OutputPath:      outputPath,
+		IncludeCurves:   includeCurves,
+	})
+}
+
+// BuildProjectTransformRecipeWithOptions returns a full or filtered
+// fixed-topology recipe. It does not write any files.
+func BuildProjectTransformRecipeWithOptions(
+	options ProjectTransformRecipeBuildOptions,
+) (*ProjectTransformRecipe, error) {
+	listed, err := ListProjectTransformTimelines(options.Path, options.Animation)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(targetAnimation) == "" {
-		targetAnimation = animation + "-agent"
+	boneReferences, err := normalizeBoneReferenceFilter(
+		options.BoneReferences,
+		listed.Directory.Timelines,
+	)
+	if err != nil {
+		return nil, err
 	}
+	timelineTypes, err := normalizeTimelineTypeFilter(options.TimelineTypes)
+	if err != nil {
+		return nil, err
+	}
+	targetAnimation := options.TargetAnimation
+	if strings.TrimSpace(targetAnimation) == "" {
+		targetAnimation = options.Animation + "-agent"
+	}
+	outputPath := options.OutputPath
 	if strings.TrimSpace(outputPath) == "" {
 		extension := filepath.Ext(listed.Path)
 		stem := strings.TrimSuffix(filepath.Base(listed.Path), extension)
@@ -518,7 +557,19 @@ func BuildProjectTransformRecipe(
 		0,
 		len(listed.Directory.Timelines),
 	)
+	matchedBoneReferences := make(map[int]struct{})
+	matchedTimelineTypes := make(map[string]struct{})
 	for _, timeline := range listed.Directory.Timelines {
+		if len(boneReferences) != 0 {
+			if _, selected := boneReferences[timeline.BoneReference]; !selected {
+				continue
+			}
+		}
+		if len(timelineTypes) != 0 {
+			if _, selected := timelineTypes[timeline.Type]; !selected {
+				continue
+			}
+		}
 		keys := make(
 			[]spineparser.ProjectTransformKeySpec,
 			0,
@@ -529,7 +580,7 @@ func BuildProjectTransformRecipe(
 				Frame:  key.Frame,
 				Values: append([]float32(nil), key.Values...),
 			}
-			if includeCurves {
+			if options.IncludeCurves {
 				spec.Curves = append([][4]float32(nil), key.Curves...)
 			}
 			keys = append(keys, spec)
@@ -539,15 +590,83 @@ func BuildProjectTransformRecipe(
 			Timeline:      timeline.Type,
 			Keys:          keys,
 		})
+		matchedBoneReferences[timeline.BoneReference] = struct{}{}
+		matchedTimelineTypes[timeline.Type] = struct{}{}
+	}
+	if len(timelines) == 0 {
+		return nil, errors.New("no transform timelines matched the requested filters")
+	}
+	for reference := range boneReferences {
+		if _, matched := matchedBoneReferences[reference]; !matched {
+			return nil, fmt.Errorf(
+				"bone reference %d has no timeline matching the requested types",
+				reference,
+			)
+		}
+	}
+	for timelineType := range timelineTypes {
+		if _, matched := matchedTimelineTypes[timelineType]; !matched {
+			return nil, fmt.Errorf(
+				"timeline type %q has no match for the requested bones",
+				timelineType,
+			)
+		}
 	}
 	return &ProjectTransformRecipe{
 		SchemaVersion:   "spine233.transform-rewrite/v1",
 		InputPath:       listed.Path,
 		OutputPath:      outputPath,
-		Animation:       animation,
+		Animation:       options.Animation,
 		TargetAnimation: targetAnimation,
 		Timelines:       timelines,
 	}, nil
+}
+
+func normalizeBoneReferenceFilter(
+	requested []int,
+	timelines []spineparser.ProjectTransformTimeline,
+) (map[int]struct{}, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	available := make(map[int]struct{})
+	for _, timeline := range timelines {
+		available[timeline.BoneReference] = struct{}{}
+	}
+	selected := make(map[int]struct{}, len(requested))
+	for _, reference := range requested {
+		if reference < 0 {
+			return nil, fmt.Errorf("bone reference must be non-negative: %d", reference)
+		}
+		if _, exists := available[reference]; !exists {
+			return nil, fmt.Errorf(
+				"bone reference %d has no transform timeline in animation",
+				reference,
+			)
+		}
+		selected[reference] = struct{}{}
+	}
+	return selected, nil
+}
+
+func normalizeTimelineTypeFilter(requested []string) (map[string]struct{}, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	selected := make(map[string]struct{}, len(requested))
+	for _, raw := range requested {
+		timelineType := strings.ToLower(strings.TrimSpace(raw))
+		switch timelineType {
+		case spineparser.ProjectTimelineRotate,
+			spineparser.ProjectTimelineTranslate,
+			spineparser.ProjectTimelineScale,
+			spineparser.ProjectTimelineShear:
+			selected[timelineType] = struct{}{}
+		default:
+			return nil, fmt.Errorf("unsupported transform timeline type %q", raw)
+		}
+	}
+	return selected, nil
 }
 
 // RewriteProjectTransform previews or applies complete transform timeline

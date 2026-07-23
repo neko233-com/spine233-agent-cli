@@ -47,10 +47,13 @@ spine233-agent-cli rotate-timelines --file hero.spine --animation attack
 spine233-agent-cli transform-timelines --file hero.spine --animation attack
 spine233-agent-cli scaffold-project-transform \
   --file hero-human.spine \
-  --animation attack > attack-agent-recipe.json
+  --animation attack \
+  --bone-references 6,12 \
+  --timeline-types rotate,translate > attack-agent-recipe.json
 ```
 
-Codex 工作流：生成 recipe → 修改 `timelines[].keys` → 预览 → apply。
+`--bone-references` 和 `--timeline-types` 可选；用于缩小大型工程的 agent
+上下文。Codex 工作流：生成 recipe → 修改 `timelines[].keys` → 预览 → apply。
 
 ```bash
 spine233-agent-cli rewrite-project-transform \
@@ -144,7 +147,7 @@ MCP 工具：
 | `spine_list_project_bones` | 直接列出 `.spine` 骨骼目录 |
 | `spine_list_project_rotate_timelines` | 语义列出 rotate 时间线 |
 | `spine_list_project_transform_timelines` | 列出骨骼变换时间线 |
-| `spine_build_project_transform_recipe` | 从已有动画生成完整 recipe |
+| `spine_build_project_transform_recipe` | 从已有动画生成完整或过滤后的 recipe |
 | `spine_patch_project_animation` | 直接修改 `.spine` 动画关键帧 |
 | `spine_patch_project_rotate` | 语义修改 rotate 关键帧 |
 | `spine_patch_project_transform` | 修改骨骼变换关键帧 |

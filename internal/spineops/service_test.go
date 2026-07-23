@@ -565,6 +565,48 @@ func TestBuildProjectTransformRecipeOfficialHero(t *testing.T) {
 	}
 }
 
+func TestBuildProjectTransformRecipeFiltersOfficialHero(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	recipe, err := BuildProjectTransformRecipeWithOptions(
+		ProjectTransformRecipeBuildOptions{
+			Path:           input,
+			Animation:      "attack",
+			BoneReferences: []int{6},
+			TimelineTypes:  []string{" TRANSLATE "},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recipe.Timelines) == 0 {
+		t.Fatal("filtered recipe has no timelines")
+	}
+	for _, timeline := range recipe.Timelines {
+		if timeline.BoneReference != 6 ||
+			timeline.Timeline != spineparser.ProjectTimelineTranslate {
+			t.Fatalf("unexpected filtered timeline: %#v", timeline)
+		}
+	}
+	if _, err := BuildProjectTransformRecipeWithOptions(
+		ProjectTransformRecipeBuildOptions{
+			Path:          input,
+			Animation:     "attack",
+			TimelineTypes: []string{"color"},
+		},
+	); err == nil {
+		t.Fatal("unsupported timeline filter accepted")
+	}
+	if _, err := BuildProjectTransformRecipeWithOptions(
+		ProjectTransformRecipeBuildOptions{
+			Path:           input,
+			Animation:      "attack",
+			BoneReferences: []int{999999},
+		},
+	); err == nil {
+		t.Fatal("unknown bone reference accepted")
+	}
+}
+
 func mapsEqual(left, right map[string]int) bool {
 	if len(left) != len(right) {
 		return false

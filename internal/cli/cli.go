@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/neko233-com/spine233-agent-cli/internal/app"
@@ -98,15 +99,33 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 			false,
 			"include all raw curve controls",
 		)
+		boneReferences := flags.String(
+			"bone-references",
+			"",
+			"comma-separated Kryo bone references; empty selects all",
+		)
+		timelineTypes := flags.String(
+			"timeline-types",
+			"",
+			"comma-separated rotate,translate,scale,shear; empty selects all",
+		)
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		value, err := spineops.BuildProjectTransformRecipe(
-			*path,
-			*animation,
-			*targetAnimation,
-			*outputPath,
-			*includeCurves,
+		references, err := parseIntegerList(*boneReferences)
+		if err != nil {
+			return err
+		}
+		value, err := spineops.BuildProjectTransformRecipeWithOptions(
+			spineops.ProjectTransformRecipeBuildOptions{
+				Path:            *path,
+				Animation:       *animation,
+				TargetAnimation: *targetAnimation,
+				OutputPath:      *outputPath,
+				IncludeCurves:   *includeCurves,
+				BoneReferences:  references,
+				TimelineTypes:   parseStringList(*timelineTypes),
+			},
 		)
 		return printJSONMust(output, value, err)
 	case "inspect":
@@ -449,6 +468,33 @@ func printJSONMust[T any](output io.Writer, value T, err error) error {
 		return err
 	}
 	return printJSON(output, value)
+}
+
+func parseStringList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	raw := strings.Split(value, ",")
+	result := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func parseIntegerList(value string) ([]int, error) {
+	raw := parseStringList(value)
+	result := make([]int, 0, len(raw))
+	for _, item := range raw {
+		parsed, err := strconv.Atoi(item)
+		if err != nil {
+			return nil, fmt.Errorf("parse integer list item %q: %w", item, err)
+		}
+		result = append(result, parsed)
+	}
+	return result, nil
 }
 
 // IsUsageError identifies errors appropriate for exit code 2.

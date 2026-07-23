@@ -138,13 +138,26 @@ func tools() []map[string]any {
 			}, "path", "animation"),
 		},
 		{
-			"name": "spine_build_project_transform_recipe", "description": "Build a complete editable rewrite recipe from an existing .spine animation. Defaults target to {animation}-agent and output to sibling *-agent.spine. Does not write.",
+			"name": "spine_build_project_transform_recipe", "description": "Build a full or filtered editable rewrite recipe from an existing .spine animation. Defaults target to {animation}-agent and output to sibling *-agent.spine. Does not write.",
 			"inputSchema": schema(map[string]any{
 				"path":            path,
 				"animation":       map[string]any{"type": "string"},
 				"targetAnimation": map[string]any{"type": "string"},
 				"outputPath":      map[string]any{"type": "string"},
 				"includeCurves":   map[string]any{"type": "boolean", "default": false},
+				"boneReferences": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "integer", "minimum": 0},
+					"description": "Optional Kryo bone references; empty selects all",
+				},
+				"timelineTypes": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "string",
+						"enum": []string{"rotate", "translate", "scale", "shear"},
+					},
+					"description": "Optional transform types; empty selects all",
+				},
 			}, "path", "animation"),
 		},
 		{
@@ -393,21 +406,27 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 		return spineops.ListProjectTransformTimelines(args.Path, args.Animation)
 	case "spine_build_project_transform_recipe":
 		var args struct {
-			Path            string `json:"path"`
-			Animation       string `json:"animation"`
-			TargetAnimation string `json:"targetAnimation"`
-			OutputPath      string `json:"outputPath"`
-			IncludeCurves   bool   `json:"includeCurves"`
+			Path            string   `json:"path"`
+			Animation       string   `json:"animation"`
+			TargetAnimation string   `json:"targetAnimation"`
+			OutputPath      string   `json:"outputPath"`
+			IncludeCurves   bool     `json:"includeCurves"`
+			BoneReferences  []int    `json:"boneReferences"`
+			TimelineTypes   []string `json:"timelineTypes"`
 		}
 		if err := json.Unmarshal(call.Arguments, &args); err != nil {
 			return nil, err
 		}
-		return spineops.BuildProjectTransformRecipe(
-			args.Path,
-			args.Animation,
-			args.TargetAnimation,
-			args.OutputPath,
-			args.IncludeCurves,
+		return spineops.BuildProjectTransformRecipeWithOptions(
+			spineops.ProjectTransformRecipeBuildOptions{
+				Path:            args.Path,
+				Animation:       args.Animation,
+				TargetAnimation: args.TargetAnimation,
+				OutputPath:      args.OutputPath,
+				IncludeCurves:   args.IncludeCurves,
+				BoneReferences:  args.BoneReferences,
+				TimelineTypes:   args.TimelineTypes,
+			},
 		)
 	case "spine_query_json":
 		var args struct {
