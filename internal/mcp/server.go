@@ -305,6 +305,57 @@ func tools() []map[string]any {
 			}, "inputPath", "animation", "edits"),
 		},
 		{
+			"name": "spine_program_project_transform_animation", "description": "Expand compact set/add/multiply operations over explicit bones and key indices or frame ranges into exact fail-closed transform edits. Requires expectedMatches, defaults to {animation}-agent, previews before writing.",
+			"inputSchema": schema(map[string]any{
+				"inputPath":       map[string]any{"type": "string"},
+				"outputPath":      map[string]any{"type": "string"},
+				"animation":       map[string]any{"type": "string"},
+				"targetAnimation": map[string]any{"type": "string", "description": "Optional; defaults to {animation}-agent"},
+				"operations": map[string]any{
+					"type": "array", "minItems": 1,
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"boneReferences": map[string]any{
+								"type": "array", "minItems": 1,
+								"items": map[string]any{"type": "integer", "minimum": 1},
+							},
+							"timeline": map[string]any{
+								"type": "string",
+								"enum": []string{"rotate", "translate", "scale", "shear"},
+							},
+							"channel": map[string]any{
+								"type":    "string",
+								"pattern": `^(frame|value|x|y|curve\.(value|x|y)\.[0-3])$`,
+							},
+							"keyIndices": map[string]any{
+								"type": "array", "minItems": 1,
+								"items": map[string]any{"type": "integer", "minimum": 0},
+							},
+							"frameStart": map[string]any{"type": "number", "minimum": 0},
+							"frameEnd":   map[string]any{"type": "number", "minimum": 0},
+							"mode": map[string]any{
+								"type": "string",
+								"enum": []string{"set", "add", "multiply"},
+							},
+							"operand":         map[string]any{"type": "number"},
+							"expectedMatches": map[string]any{"type": "integer", "minimum": 1},
+						},
+						"required": []string{
+							"boneReferences",
+							"timeline",
+							"channel",
+							"mode",
+							"operand",
+							"expectedMatches",
+						},
+					},
+				},
+				"apply":     map[string]any{"type": "boolean", "default": false},
+				"overwrite": map[string]any{"type": "boolean", "default": false},
+			}, "inputPath", "animation", "operations"),
+		},
+		{
 			"name": "spine_rewrite_project_transform_animation", "description": "Preview or apply complete fixed-topology transform timeline declarations. Rewrites frame/value/curve data and can rename to {animation}-agent without changing Kryo object counts.",
 			"inputSchema": schema(map[string]any{
 				"inputPath":       map[string]any{"type": "string"},
@@ -508,6 +559,12 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.PatchProjectTransform(args)
+	case "spine_program_project_transform_animation":
+		var args spineops.ProjectTransformProgramOptions
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.ProgramProjectTransform(args)
 	case "spine_rewrite_project_transform_animation":
 		var args spineops.ProjectTransformRewriteOptions
 		if err := json.Unmarshal(call.Arguments, &args); err != nil {

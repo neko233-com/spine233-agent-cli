@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -697,6 +698,357 @@ func PatchProjectTransform(
 	result.OutputPath = absoluteOutput
 	result.Applied = true
 	return result, nil
+}
+
+// ProjectTransformProgramOperation expands one compact selector and arithmetic
+// operation into exact, fail-closed transform edits.
+type ProjectTransformProgramOperation struct {
+	BoneReferences  []int    `json:"boneReferences"`
+	Timeline        string   `json:"timeline"`
+	Channel         string   `json:"channel"`
+	KeyIndices      []int    `json:"keyIndices,omitempty"`
+	FrameStart      *float32 `json:"frameStart,omitempty"`
+	FrameEnd        *float32 `json:"frameEnd,omitempty"`
+	Mode            string   `json:"mode"`
+	Operand         float32  `json:"operand"`
+	ExpectedMatches int      `json:"expectedMatches"`
+}
+
+// ProjectTransformProgramOptions controls compact batch animation edits.
+type ProjectTransformProgramOptions struct {
+	InputPath       string                             `json:"inputPath"`
+	OutputPath      string                             `json:"outputPath,omitempty"`
+	Animation       string                             `json:"animation"`
+	TargetAnimation string                             `json:"targetAnimation,omitempty"`
+	Operations      []ProjectTransformProgramOperation `json:"operations"`
+	Apply           bool                               `json:"apply,omitempty"`
+	Overwrite       bool                               `json:"overwrite,omitempty"`
+}
+
+// ProjectTransformProgramResult includes generated exact edits and patch
+// verification.
+type ProjectTransformProgramResult struct {
+	ExpandedEdits []spineparser.ProjectTransformValueEdit `json:"expandedEdits"`
+	Result        *ProjectTransformResult                 `json:"result"`
+}
+
+// ProgramProjectTransform expands compact, guarded operations and applies the
+// existing exact-value patch engine.
+func ProgramProjectTransform(
+	options ProjectTransformProgramOptions,
+) (*ProjectTransformProgramResult, error) {
+	if len(options.Operations) == 0 {
+		return nil, errors.New("at least one transform operation is required")
+	}
+	listed, err := ListProjectTransformTimelines(
+		options.InputPath,
+		options.Animation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	type timelineKey struct {
+		BoneReference int
+		Type          string
+	}
+	timelines := make(
+		map[timelineKey][]spineparser.ProjectTransformTimeline,
+		len(listed.Directory.Timelines),
+	)
+	for _, timeline := range listed.Directory.Timelines {
+		key := timelineKey{
+			BoneReference: timeline.BoneReference,
+			Type:          timeline.Type,
+		}
+		timelines[key] = append(timelines[key], timeline)
+	}
+
+	expanded := make([]spineparser.ProjectTransformValueEdit, 0)
+	seenEdits := make(map[string]struct{})
+	for operationIndex, operation := range options.Operations {
+		if len(operation.BoneReferences) == 0 {
+			return nil, fmt.Errorf(
+				"operation %d: at least one boneReference is required",
+				operationIndex,
+			)
+		}
+		timelineTypes, err := normalizeTimelineTypeFilter(
+			[]string{operation.Timeline},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("operation %d: %w", operationIndex, err)
+		}
+		var timelineType string
+		for value := range timelineTypes {
+			timelineType = value
+		}
+		channel := strings.ToLower(strings.TrimSpace(operation.Channel))
+		if channel == "" {
+			return nil, fmt.Errorf("operation %d: channel is required", operationIndex)
+		}
+		mode := strings.ToLower(strings.TrimSpace(operation.Mode))
+		switch mode {
+		case "set", "add", "multiply":
+		default:
+			return nil, fmt.Errorf(
+				"operation %d: unsupported mode %q",
+				operationIndex,
+				operation.Mode,
+			)
+		}
+		if !finiteFloat32(operation.Operand) {
+			return nil, fmt.Errorf("operation %d: operand must be finite", operationIndex)
+		}
+		if operation.ExpectedMatches < 1 {
+			return nil, fmt.Errorf(
+				"operation %d: expectedMatches must be positive",
+				operationIndex,
+			)
+		}
+		useIndices := len(operation.KeyIndices) > 0
+		useFrameRange := operation.FrameStart != nil || operation.FrameEnd != nil
+		if useIndices == useFrameRange {
+			return nil, fmt.Errorf(
+				"operation %d: specify exactly one of keyIndices or frameStart/frameEnd",
+				operationIndex,
+			)
+		}
+		keyIndices := make(map[int]struct{}, len(operation.KeyIndices))
+		if useIndices {
+			for _, keyIndex := range operation.KeyIndices {
+				if keyIndex < 0 {
+					return nil, fmt.Errorf(
+						"operation %d: keyIndex must be non-negative",
+						operationIndex,
+					)
+				}
+				if _, duplicate := keyIndices[keyIndex]; duplicate {
+					return nil, fmt.Errorf(
+						"operation %d: duplicate keyIndex %d",
+						operationIndex,
+						keyIndex,
+					)
+				}
+				keyIndices[keyIndex] = struct{}{}
+			}
+		} else {
+			if operation.FrameStart == nil || operation.FrameEnd == nil ||
+				!finiteFloat32(*operation.FrameStart) ||
+				!finiteFloat32(*operation.FrameEnd) ||
+				*operation.FrameStart < 0 ||
+				*operation.FrameStart > *operation.FrameEnd {
+				return nil, fmt.Errorf(
+					"operation %d: frameStart/frameEnd must be finite, non-negative, and ordered",
+					operationIndex,
+				)
+			}
+		}
+
+		references := make(map[int]struct{}, len(operation.BoneReferences))
+		matchesBefore := len(expanded)
+		for _, boneReference := range operation.BoneReferences {
+			if boneReference < 0 {
+				return nil, fmt.Errorf(
+					"operation %d: boneReference must be non-negative",
+					operationIndex,
+				)
+			}
+			if _, duplicate := references[boneReference]; duplicate {
+				return nil, fmt.Errorf(
+					"operation %d: duplicate boneReference %d",
+					operationIndex,
+					boneReference,
+				)
+			}
+			references[boneReference] = struct{}{}
+			candidates := timelines[timelineKey{
+				BoneReference: boneReference,
+				Type:          timelineType,
+			}]
+			if len(candidates) != 1 {
+				return nil, fmt.Errorf(
+					"operation %d: boneReference %d matched %d %s timelines",
+					operationIndex,
+					boneReference,
+					len(candidates),
+					timelineType,
+				)
+			}
+			timeline := candidates[0]
+			matchedForTimeline := 0
+			for keyIndex, key := range timeline.Keys {
+				selected := false
+				if useIndices {
+					_, selected = keyIndices[keyIndex]
+				} else {
+					selected = key.Frame >= *operation.FrameStart &&
+						key.Frame <= *operation.FrameEnd
+				}
+				if !selected {
+					continue
+				}
+				from, err := transformChannelValue(timeline, key, channel)
+				if err != nil {
+					return nil, fmt.Errorf(
+						"operation %d boneReference %d key %d: %w",
+						operationIndex,
+						boneReference,
+						keyIndex,
+						err,
+					)
+				}
+				to := operation.Operand
+				switch mode {
+				case "add":
+					to = from + operation.Operand
+				case "multiply":
+					to = from * operation.Operand
+				}
+				if !finiteFloat32(to) {
+					return nil, fmt.Errorf(
+						"operation %d boneReference %d key %d: result must be finite",
+						operationIndex,
+						boneReference,
+						keyIndex,
+					)
+				}
+				if to == from {
+					return nil, fmt.Errorf(
+						"operation %d boneReference %d key %d: operation makes no change",
+						operationIndex,
+						boneReference,
+						keyIndex,
+					)
+				}
+				editIdentity := fmt.Sprintf(
+					"%d/%s/%d/%s",
+					boneReference,
+					timelineType,
+					keyIndex,
+					channel,
+				)
+				if _, duplicate := seenEdits[editIdentity]; duplicate {
+					return nil, fmt.Errorf(
+						"operation %d: duplicate edit %s",
+						operationIndex,
+						editIdentity,
+					)
+				}
+				seenEdits[editIdentity] = struct{}{}
+				expanded = append(expanded, spineparser.ProjectTransformValueEdit{
+					BoneReference: boneReference,
+					Timeline:      timelineType,
+					KeyIndex:      keyIndex,
+					Channel:       channel,
+					From:          from,
+					To:            to,
+				})
+				matchedForTimeline++
+			}
+			if useIndices && matchedForTimeline != len(keyIndices) {
+				return nil, fmt.Errorf(
+					"operation %d: boneReference %d matched %d of %d keyIndices",
+					operationIndex,
+					boneReference,
+					matchedForTimeline,
+					len(keyIndices),
+				)
+			}
+			if !useIndices && matchedForTimeline == 0 {
+				return nil, fmt.Errorf(
+					"operation %d: boneReference %d frame range matched no keys",
+					operationIndex,
+					boneReference,
+				)
+			}
+		}
+		matches := len(expanded) - matchesBefore
+		if matches != operation.ExpectedMatches {
+			return nil, fmt.Errorf(
+				"operation %d: matched %d keys, expected %d",
+				operationIndex,
+				matches,
+				operation.ExpectedMatches,
+			)
+		}
+	}
+
+	targetAnimation := strings.TrimSpace(options.TargetAnimation)
+	if targetAnimation == "" {
+		targetAnimation = options.Animation + "-agent"
+	}
+	outputPath := options.OutputPath
+	if options.Apply && strings.TrimSpace(outputPath) == "" {
+		outputPath = defaultAgentProjectPath(listed.Path)
+	}
+	result, err := PatchProjectTransform(ProjectTransformOptions{
+		InputPath:       listed.Path,
+		OutputPath:      outputPath,
+		Animation:       options.Animation,
+		TargetAnimation: targetAnimation,
+		Edits:           expanded,
+		Apply:           options.Apply,
+		Overwrite:       options.Overwrite,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectTransformProgramResult{
+		ExpandedEdits: expanded,
+		Result:        result,
+	}, nil
+}
+
+func transformChannelValue(
+	timeline spineparser.ProjectTransformTimeline,
+	key spineparser.ProjectTransformKey,
+	channel string,
+) (float32, error) {
+	if channel == "frame" {
+		return key.Frame, nil
+	}
+	for channelIndex, name := range timeline.Channels {
+		if channel == name {
+			if channelIndex >= len(key.Values) {
+				return 0, errors.New("value channel is missing")
+			}
+			return key.Values[channelIndex], nil
+		}
+	}
+	parts := strings.Split(channel, ".")
+	if len(parts) != 3 || parts[0] != "curve" {
+		return 0, fmt.Errorf("unsupported channel %q", channel)
+	}
+	controlIndex, err := strconv.Atoi(parts[2])
+	if err != nil || controlIndex < 0 || controlIndex > 3 {
+		return 0, fmt.Errorf("invalid curve control channel %q", channel)
+	}
+	for channelIndex, name := range timeline.Channels {
+		if parts[1] == name {
+			if channelIndex >= len(key.Curves) {
+				return 0, errors.New("curve channel is missing")
+			}
+			return key.Curves[channelIndex][controlIndex], nil
+		}
+	}
+	return 0, fmt.Errorf("unsupported curve value channel %q", parts[1])
+}
+
+func finiteFloat32(value float32) bool {
+	return !float32IsNaNOrInf(value)
+}
+
+func float32IsNaNOrInf(value float32) bool {
+	return math.IsNaN(float64(value)) || math.IsInf(float64(value), 0)
+}
+
+func defaultAgentProjectPath(path string) string {
+	extension := filepath.Ext(path)
+	stem := strings.TrimSuffix(filepath.Base(path), extension)
+	if strings.HasSuffix(strings.ToLower(stem), "-human") {
+		stem = stem[:len(stem)-len("-human")]
+	}
+	return filepath.Join(filepath.Dir(path), stem+"-agent"+extension)
 }
 
 // ProjectTransformRewriteOptions controls declarative, fixed-topology

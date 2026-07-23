@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	spineparser "github.com/neko233-com/spine233-file-parser"
@@ -646,6 +647,74 @@ func TestCompareProjectTransformAnimationsDemos(t *testing.T) {
 				t.Fatalf("comparison = %#v", comparison)
 			}
 		})
+	}
+}
+
+func TestProgramProjectTransformOfficialHero(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	output := filepath.Join(t.TempDir(), "hero-agent.spine")
+	programmed, err := ProgramProjectTransform(ProjectTransformProgramOptions{
+		InputPath:  input,
+		OutputPath: output,
+		Animation:  "attack",
+		Operations: []ProjectTransformProgramOperation{
+			{
+				BoneReferences:  []int{6},
+				Timeline:        "rotate",
+				Channel:         "value",
+				KeyIndices:      []int{1},
+				Mode:            "add",
+				Operand:         10,
+				ExpectedMatches: 1,
+			},
+		},
+		Apply: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !programmed.Result.Applied ||
+		programmed.Result.Patch.TargetAnimation != "attack-agent" ||
+		len(programmed.ExpandedEdits) != 1 ||
+		programmed.ExpandedEdits[0].To !=
+			programmed.ExpandedEdits[0].From+10 {
+		t.Fatalf("programmed = %#v", programmed)
+	}
+	comparison, err := CompareProjectTransformAnimations(
+		ProjectTransformComparisonOptions{
+			SourcePath:      input,
+			SourceAnimation: "attack",
+			TargetPath:      output,
+			TargetAnimation: "attack-agent",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !comparison.AgentReady || comparison.TotalChanges != 1 {
+		t.Fatalf("comparison = %#v", comparison)
+	}
+}
+
+func TestProgramProjectTransformRejectsMatchDrift(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	_, err := ProgramProjectTransform(ProjectTransformProgramOptions{
+		InputPath: input,
+		Animation: "attack",
+		Operations: []ProjectTransformProgramOperation{
+			{
+				BoneReferences:  []int{6},
+				Timeline:        "rotate",
+				Channel:         "value",
+				KeyIndices:      []int{1},
+				Mode:            "add",
+				Operand:         10,
+				ExpectedMatches: 2,
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "matched 1 keys, expected 2") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

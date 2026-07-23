@@ -67,3 +67,48 @@ func TestParseIntegerList(t *testing.T) {
 		t.Fatal("invalid integer accepted")
 	}
 }
+
+func TestRunProgramProjectTransformPreview(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	operations := `[{
+		"boneReferences":[6],
+		"timeline":"rotate",
+		"channel":"value",
+		"keyIndices":[1],
+		"mode":"add",
+		"operand":10,
+		"expectedMatches":1
+	}]`
+	output := new(bytes.Buffer)
+	if err := Run(
+		context.Background(),
+		[]string{
+			"program-project-transform",
+			"--file", input,
+			"--animation", "attack",
+			"--operations", operations,
+		},
+		bytes.NewReader(nil),
+		output,
+		new(bytes.Buffer),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		ExpandedEdits []any `json:"expandedEdits"`
+		Result        struct {
+			Applied bool `json:"applied"`
+			Patch   struct {
+				TargetAnimation string `json:"targetAnimation"`
+			} `json:"patch"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Result.Applied ||
+		result.Result.Patch.TargetAnimation != "attack-agent" ||
+		len(result.ExpandedEdits) != 1 {
+		t.Fatalf("result = %s", output.String())
+	}
+}
