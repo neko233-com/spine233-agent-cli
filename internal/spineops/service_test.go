@@ -361,6 +361,90 @@ func TestProjectTransformOfficialHero(t *testing.T) {
 	}
 }
 
+func TestOfficialDemoTransformCoverage(t *testing.T) {
+	tests := []struct {
+		project   string
+		timelines map[string]int
+		keys      map[string]int
+	}{
+		{
+			project: "alien",
+			timelines: map[string]int{
+				"rotate": 62, "translate": 25, "scale": 15, "shear": 1,
+			},
+			keys: map[string]int{
+				"rotate": 407, "translate": 179, "scale": 92, "shear": 3,
+			},
+		},
+		{
+			project: "hero",
+			timelines: map[string]int{
+				"rotate": 159, "translate": 116, "scale": 5,
+			},
+			keys: map[string]int{
+				"rotate": 742, "translate": 574, "scale": 15,
+			},
+		},
+		{
+			project: "raptor",
+			timelines: map[string]int{
+				"rotate": 161, "translate": 81, "scale": 14, "shear": 2,
+			},
+			keys: map[string]int{
+				"rotate": 1217, "translate": 492, "scale": 72, "shear": 12,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.project, func(t *testing.T) {
+			path := filepath.Join(
+				"..",
+				"..",
+				"demo",
+				test.project,
+				test.project+"-human.spine",
+			)
+			animations, err := ListProjectAnimations(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			timelineCounts := make(map[string]int)
+			keyCounts := make(map[string]int)
+			for _, animation := range animations.Directory.Records {
+				directory, err := ListProjectTransformTimelines(
+					path,
+					animation.Name,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, timeline := range directory.Directory.Timelines {
+					timelineCounts[timeline.Type]++
+					keyCounts[timeline.Type] += len(timeline.Keys)
+				}
+			}
+			if !mapsEqual(timelineCounts, test.timelines) {
+				t.Fatalf("timeline counts = %#v, want %#v", timelineCounts, test.timelines)
+			}
+			if !mapsEqual(keyCounts, test.keys) {
+				t.Fatalf("key counts = %#v, want %#v", keyCounts, test.keys)
+			}
+		})
+	}
+}
+
+func mapsEqual(left, right map[string]int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
 func rotateValue(
 	directory *spineparser.ProjectRotateTimelineDirectory,
 	boneReference int,
