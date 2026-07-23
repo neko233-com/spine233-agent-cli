@@ -32,7 +32,7 @@ func TestRunAnimateProjectRecipePreview(t *testing.T) {
 	output := new(bytes.Buffer)
 	if err := Run(
 		context.Background(),
-		[]string{"animate-project", "--recipe", recipe},
+		[]string{"animate-project-rotate", "--recipe", recipe},
 		bytes.NewReader(nil),
 		output,
 		new(bytes.Buffer),

@@ -3,12 +3,11 @@
   "outputPath": "raptor-agent.spine",
   "animation": "gun-grab",
   "targetAnimation": "gun-grab-agent",
-  "endBefore": "gun-holster",
   "intent": "强化前臂抓枪的预备、伸展和回收幅度",
   "edits": [
-    {"from": -32, "to": -48, "expectedMatches": 1},
-    {"from": -136.89, "to": -160, "expectedMatches": 1},
-    {"from": -113.86, "to": -128, "expectedMatches": 1},
-    {"from": -56.75, "to": -68, "expectedMatches": 2}
+    {"boneReference": 40, "keyIndex": 1, "from": -32, "to": -48},
+    {"boneReference": 40, "keyIndex": 2, "from": -136.89, "to": -160},
+    {"boneReference": 40, "keyIndex": 4, "from": -113.86, "to": -128},
+    {"boneReference": 40, "keyIndex": 5, "from": -56.75, "to": -68}
   ]
 }

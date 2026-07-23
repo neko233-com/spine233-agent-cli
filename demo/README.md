@@ -30,15 +30,15 @@ Agent 动画：
 | hero | `attack` → `attack-agent` | 强化蓄力、挥击、身体跟随 |
 | raptor | `gun-grab` → `gun-grab-agent` | 强化前臂抓枪、伸展、回收 |
 
-每个 `agent-animation.json` 保存 fail-closed 修改 recipe。操作直接解包
-`.spine` raw-DEFLATE payload、修改动画记录内大端 float32 关键帧、重新封包；
-不启动、不调用、不依赖 `Spine.exe` / `Spine.com`。
+每个 `agent-animation.json` 保存 fail-closed 语义 recipe。操作直接解包
+`.spine` raw-DEFLATE payload，按骨骼引用、rotate 关键帧索引及旧值三重校验，
+修改后重新封包；不启动、不调用、不依赖 `Spine.exe` / `Spine.com`。
 
 复现：
 
 ```bash
-spine233-agent-cli animate-project --recipe demo/raptor/agent-animation.json
-spine233-agent-cli animate-project --recipe demo/raptor/agent-animation.json --apply --overwrite
+spine233-agent-cli animate-project-rotate --recipe demo/raptor/agent-animation.json
+spine233-agent-cli animate-project-rotate --recipe demo/raptor/agent-animation.json --apply --overwrite
 ```
 
 每个目录保持官方工程布局，包括 `.spine`、`images/`、官方导出文件和该

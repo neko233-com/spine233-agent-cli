@@ -124,6 +124,173 @@ type FileInfo struct {
 	Size int64                `json:"size"`
 }
 
+// ProjectAnimationList is a directly decoded .spine animation directory.
+type ProjectAnimationList struct {
+	Path         string                                 `json:"path"`
+	SpineVersion string                                 `json:"spineVersion,omitempty"`
+	Directory    *spineparser.ProjectAnimationDirectory `json:"directory"`
+}
+
+// ListProjectAnimations decodes top-level animation names and record boundaries
+// without invoking Spine Editor.
+func ListProjectAnimations(path string) (*ProjectAnimationList, error) {
+	absolute, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	directory, err := spineparser.DiscoverProjectAnimations(document.Payload)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectAnimationList{
+		Path:         absolute,
+		SpineVersion: document.Inspection.SpineVersion,
+		Directory:    directory,
+	}, nil
+}
+
+// ProjectRotateTimelineList is a directly decoded .spine rotate directory.
+type ProjectRotateTimelineList struct {
+	Path         string                                      `json:"path"`
+	SpineVersion string                                      `json:"spineVersion,omitempty"`
+	Directory    *spineparser.ProjectRotateTimelineDirectory `json:"directory"`
+}
+
+// ListProjectRotateTimelines decodes one animation's rotate tracks and keys
+// without invoking Spine Editor.
+func ListProjectRotateTimelines(
+	path string,
+	animation string,
+) (*ProjectRotateTimelineList, error) {
+	absolute, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	directory, err := spineparser.DiscoverProjectRotateTimelines(
+		document.Payload,
+		animation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectRotateTimelineList{
+		Path:         absolute,
+		SpineVersion: document.Inspection.SpineVersion,
+		Directory:    directory,
+	}, nil
+}
+
+// ProjectRotateOptions controls semantic rotate-key edits. The operation is
+// preview-first and never overwrites input.
+type ProjectRotateOptions struct {
+	InputPath       string                               `json:"inputPath"`
+	OutputPath      string                               `json:"outputPath,omitempty"`
+	Animation       string                               `json:"animation"`
+	TargetAnimation string                               `json:"targetAnimation,omitempty"`
+	Edits           []spineparser.ProjectRotateValueEdit `json:"edits"`
+	Apply           bool                                 `json:"apply,omitempty"`
+	Overwrite       bool                                 `json:"overwrite,omitempty"`
+}
+
+// ProjectRotateResult reports a semantic rotate preview or new project.
+type ProjectRotateResult struct {
+	InputPath         string                               `json:"inputPath"`
+	OutputPath        string                               `json:"outputPath,omitempty"`
+	Applied           bool                                 `json:"applied"`
+	InputSHA256       string                               `json:"inputSha256"`
+	OutputSHA256      string                               `json:"outputSha256"`
+	CompressedBytes   int                                  `json:"compressedBytes"`
+	UncompressedBytes int                                  `json:"uncompressedBytes"`
+	Patch             spineparser.ProjectRotatePatchReport `json:"patch"`
+}
+
+// PatchProjectRotate previews or applies semantic rotate-key edits without
+// invoking Spine Editor.
+func PatchProjectRotate(options ProjectRotateOptions) (*ProjectRotateResult, error) {
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	patched, report, err := spineparser.PatchProjectRotateValues(
+		document,
+		spineparser.ProjectRotatePatch{
+			Animation:       options.Animation,
+			TargetAnimation: options.TargetAnimation,
+			Edits:           options.Edits,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := spineparser.SerializeProject(
+		patched,
+		spineparser.ProjectSerializeOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	verified, err := spineparser.DeserializeProject(encoded, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("verify serialized project: %w", err)
+	}
+	if !bytes.Equal(verified.Payload, patched.Payload) {
+		return nil, errors.New("verify serialized project: payload mismatch")
+	}
+
+	inputHash := sha256.Sum256(source)
+	outputHash := sha256.Sum256(encoded)
+	result := &ProjectRotateResult{
+		InputPath:         absoluteInput,
+		Applied:           false,
+		InputSHA256:       hex.EncodeToString(inputHash[:]),
+		OutputSHA256:      hex.EncodeToString(outputHash[:]),
+		CompressedBytes:   len(encoded),
+		UncompressedBytes: len(patched.Payload),
+		Patch:             report,
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	if strings.TrimSpace(options.OutputPath) == "" {
+		return nil, errors.New("outputPath is required when apply=true")
+	}
+	absoluteOutput, err := filepath.Abs(options.OutputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf(
+				"outputPath already exists; set overwrite=true: %s",
+				absoluteOutput,
+			)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	return result, nil
+}
+
 // Detect identifies a local Spine file without invoking Spine Editor.
 func Detect(path string) (*FileInfo, error) {
 	absolute, source, info, err := readFile(path)
@@ -175,6 +342,19 @@ func Summarize(path string) (*Summary, error) {
 			Kind:         kind,
 			SpineVersion: inspection.SpineVersion,
 			Counts:       map[string]int{"projectStrings": len(inspection.Strings)},
+		}
+		if document, decodeErr := spineparser.DeserializeProject(
+			source,
+			spineparser.InspectOptions{},
+		); decodeErr == nil {
+			if directory, discoverErr := spineparser.DiscoverProjectAnimations(
+				document.Payload,
+			); discoverErr == nil {
+				for _, record := range directory.Records {
+					result.Animations = append(result.Animations, record.Name)
+				}
+				result.Counts["animations"] = directory.Count
+			}
 		}
 		result.ProjectStrings, result.Truncated = boundedNames(inspection.Strings, "projectStrings", result.Truncated)
 		return result, nil

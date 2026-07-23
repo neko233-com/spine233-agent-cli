@@ -123,7 +123,6 @@ func TestPatchProjectAnimationOfficialHero(t *testing.T) {
 		InputPath:  input,
 		OutputPath: output,
 		Animation:  "attack",
-		EndBefore:  "crouch",
 		Edits: []spineparser.ProjectFloat32Edit{
 			{From: 13.22, To: 24, ExpectedMatches: 1},
 		},
@@ -173,4 +172,151 @@ func TestPatchProjectAnimationOfficialHero(t *testing.T) {
 			t.Fatalf("unexpected payload change at %d", index)
 		}
 	}
+}
+
+func TestListProjectAnimationsOfficialHero(t *testing.T) {
+	human, err := ListProjectAnimations(
+		filepath.Join("..", "..", "demo", "hero", "hero-human.spine"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if human.Directory.Count != 12 ||
+		human.Directory.Records[0].Name != "attack" ||
+		human.Directory.Records[11].Name != "walk" {
+		t.Fatalf("human animations = %#v", human.Directory)
+	}
+	agent, err := ListProjectAnimations(
+		filepath.Join("..", "..", "demo", "hero", "hero-agent.spine"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Directory.Count != 12 ||
+		agent.Directory.Records[0].Name != "attack-agent" {
+		t.Fatalf("agent animations = %#v", agent.Directory)
+	}
+}
+
+func TestProjectRotateOfficialHero(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	listed, err := ListProjectRotateTimelines(input, "attack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body *spineparser.ProjectRotateTimeline
+	for index := range listed.Directory.Timelines {
+		if listed.Directory.Timelines[index].BoneReference == 6 {
+			body = &listed.Directory.Timelines[index]
+			break
+		}
+	}
+	if body == nil || len(body.Keys) != 6 ||
+		body.Keys[1].Frame != 2 || body.Keys[1].Value != float32(13.22) {
+		t.Fatalf("body rotate timeline = %#v", body)
+	}
+
+	output := filepath.Join(t.TempDir(), "hero-agent.spine")
+	options := ProjectRotateOptions{
+		InputPath:       input,
+		OutputPath:      output,
+		Animation:       "attack",
+		TargetAnimation: "attack-agent",
+		Edits: []spineparser.ProjectRotateValueEdit{
+			{BoneReference: 6, KeyIndex: 1, From: 13.22, To: 24},
+		},
+	}
+	preview, err := PatchProjectRotate(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied || len(preview.Patch.Changes) != 1 {
+		t.Fatalf("preview = %#v", preview)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("preview wrote output: %v", err)
+	}
+	options.Apply = true
+	applied, err := PatchProjectRotate(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied {
+		t.Fatalf("applied = %#v", applied)
+	}
+	renamed, err := ListProjectRotateTimelines(output, "attack-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, timeline := range renamed.Directory.Timelines {
+		if timeline.BoneReference == 6 && timeline.Keys[1].Value == 24 {
+			return
+		}
+	}
+	t.Fatal("renamed semantic rotate value was not persisted")
+}
+
+func TestAgentDemoRotateProjects(t *testing.T) {
+	tests := []struct {
+		project    string
+		source     string
+		target     string
+		boneRef    int
+		keyIndex   int
+		humanValue float32
+		agentValue float32
+	}{
+		{"alien", "death", "death-agent", 9, 2, -10.509285, -18},
+		{"hero", "attack", "attack-agent", 6, 1, 13.22, 24},
+		{"raptor", "gun-grab", "gun-grab-agent", 40, 1, -32, -48},
+	}
+	for _, test := range tests {
+		t.Run(test.project, func(t *testing.T) {
+			directory := filepath.Join("..", "..", "demo", test.project)
+			human, err := ListProjectRotateTimelines(
+				filepath.Join(directory, test.project+"-human.spine"),
+				test.source,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			agent, err := ListProjectRotateTimelines(
+				filepath.Join(directory, test.project+"-agent.spine"),
+				test.target,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			humanValue, ok := rotateValue(
+				human.Directory,
+				test.boneRef,
+				test.keyIndex,
+			)
+			if !ok || humanValue != test.humanValue {
+				t.Fatalf("human value = %v, %v", humanValue, ok)
+			}
+			agentValue, ok := rotateValue(
+				agent.Directory,
+				test.boneRef,
+				test.keyIndex,
+			)
+			if !ok || agentValue != test.agentValue {
+				t.Fatalf("agent value = %v, %v", agentValue, ok)
+			}
+		})
+	}
+}
+
+func rotateValue(
+	directory *spineparser.ProjectRotateTimelineDirectory,
+	boneReference int,
+	keyIndex int,
+) (float32, bool) {
+	for _, timeline := range directory.Timelines {
+		if timeline.BoneReference == boneReference &&
+			keyIndex >= 0 && keyIndex < len(timeline.Keys) {
+			return timeline.Keys[keyIndex].Value, true
+		}
+	}
+	return 0, false
 }

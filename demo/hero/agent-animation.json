@@ -3,12 +3,11 @@
   "outputPath": "hero-agent.spine",
   "animation": "attack",
   "targetAnimation": "attack-agent",
-  "endBefore": "crouch",
   "intent": "强化攻击蓄力、挥击和身体跟随幅度",
   "edits": [
-    {"from": 2.2, "to": 4.5, "expectedMatches": 1},
-    {"from": 13.22, "to": 24, "expectedMatches": 1},
-    {"from": -23.59, "to": -38, "expectedMatches": 1},
-    {"from": -32.15, "to": -52, "expectedMatches": 1}
+    {"boneReference": 6, "keyIndex": 0, "from": 2.2, "to": 4.5},
+    {"boneReference": 6, "keyIndex": 1, "from": 13.22, "to": 24},
+    {"boneReference": 6, "keyIndex": 3, "from": -23.59, "to": -38},
+    {"boneReference": 6, "keyIndex": 4, "from": -32.15, "to": -52}
   ]
 }
