@@ -248,7 +248,7 @@ func tools() []map[string]any {
 							"boneReference": map[string]any{"type": "integer", "minimum": 1},
 							"timeline":      map[string]any{"type": "string", "enum": []string{"rotate", "translate", "scale", "shear"}},
 							"keyIndex":      map[string]any{"type": "integer", "minimum": 0},
-							"channel":       map[string]any{"type": "string", "enum": []string{"value", "x", "y"}},
+							"channel":       map[string]any{"type": "string", "enum": []string{"frame", "value", "x", "y"}},
 							"from":          map[string]any{"type": "number"},
 							"to":            map[string]any{"type": "number"},
 						},

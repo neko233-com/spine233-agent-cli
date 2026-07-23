@@ -342,12 +342,20 @@ func TestProjectTransformOfficialHero(t *testing.T) {
 				From:          4.86,
 				To:            8,
 			},
+			{
+				BoneReference: 6,
+				Timeline:      spineparser.ProjectTimelineTranslate,
+				KeyIndex:      1,
+				Channel:       "frame",
+				From:          4,
+				To:            5,
+			},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Applied || len(preview.Patch.Changes) != 1 ||
+	if preview.Applied || len(preview.Patch.Changes) != 2 ||
 		preview.Patch.Changes[0].Timeline != spineparser.ProjectTimelineTranslate {
 		t.Fatalf("preview = %#v", preview)
 	}
