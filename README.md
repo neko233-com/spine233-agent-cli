@@ -22,7 +22,8 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - 直接定位动画记录，fail-closed 修改大端 float32 关键帧。
 - Spine JSON 深度分析、引用验证、查询、Patch。
 - Spine JSON 动画克隆、重定时、骨骼时间线替换。
-- 14 个 stdio MCP 工具。
+- 声明式重写整条 transform 时间线，适合 Codex 生成完整动作。
+- 15 个 stdio MCP 工具。
 
 ## 安装
 
@@ -54,6 +55,20 @@ spine233-agent-cli animate-project-transform \
   --target-animation attack-agent \
   --edits '[{"boneReference":6,"timeline":"rotate","keyIndex":1,"channel":"value","from":13.22,"to":24}]'
 ```
+
+整条时间线重写：
+
+```bash
+spine233-agent-cli rewrite-project-transform \
+  --file hero-human.spine \
+  --output hero-agent.spine \
+  --animation attack \
+  --target-animation attack-agent \
+  --timelines '[{"boneReference":6,"timeline":"translate","keys":[{"frame":0,"values":[-0.77,-1.89]},{"frame":5,"values":[8,-0.24]},{"frame":6,"values":[8.05,-2.44]},{"frame":12,"values":[-0.77,-1.89]}]}]' \
+  --apply
+```
+
+重写保持时间线、关键帧数量不变；完整替换帧号和通道值，可选替换曲线。
 
 确认后输出新工程：
 
@@ -114,6 +129,7 @@ MCP 工具：
 | `spine_patch_project_animation` | 直接修改 `.spine` 动画关键帧 |
 | `spine_patch_project_rotate` | 语义修改 rotate 关键帧 |
 | `spine_patch_project_transform` | 修改骨骼变换关键帧 |
+| `spine_rewrite_project_transform_animation` | 声明式重写完整变换时间线 |
 | `spine_query_json` | JSON Pointer 查询 |
 | `spine_patch_json` | JSON Patch |
 | `spine_analyze_json` | 深度能力清单 |

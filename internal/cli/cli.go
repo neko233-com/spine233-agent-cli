@@ -311,6 +311,65 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 		options.Overwrite = *overwrite
 		value, err := spineops.PatchProjectTransform(options)
 		return printJSONMust(output, value, err)
+	case "rewrite-project-transform":
+		flags := newFlags("rewrite-project-transform", errorOutput)
+		recipePath := flags.String("recipe", "", "complete transform timeline recipe JSON")
+		inputPath := flags.String("file", "", "local .spine input")
+		outputPath := flags.String("output", "", "new .spine output")
+		animation := flags.String("animation", "", "animation record name")
+		targetAnimation := flags.String("target-animation", "", "renamed output animation")
+		timelines := flags.String(
+			"timelines",
+			"",
+			"JSON array of complete fixed-topology transform timelines",
+		)
+		apply := flags.Bool("apply", false, "write output; otherwise preview")
+		overwrite := flags.Bool("overwrite", false, "allow replacing existing output")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		options := spineops.ProjectTransformRewriteOptions{}
+		if strings.TrimSpace(*recipePath) != "" {
+			absoluteRecipe, err := filepath.Abs(*recipePath)
+			if err != nil {
+				return err
+			}
+			source, err := os.ReadFile(absoluteRecipe)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(source, &options); err != nil {
+				return fmt.Errorf("parse --recipe: %w", err)
+			}
+			directory := filepath.Dir(absoluteRecipe)
+			if options.InputPath != "" && !filepath.IsAbs(options.InputPath) {
+				options.InputPath = filepath.Join(directory, options.InputPath)
+			}
+			if options.OutputPath != "" && !filepath.IsAbs(options.OutputPath) {
+				options.OutputPath = filepath.Join(directory, options.OutputPath)
+			}
+		}
+		if *inputPath != "" {
+			options.InputPath = *inputPath
+		}
+		if *outputPath != "" {
+			options.OutputPath = *outputPath
+		}
+		if *animation != "" {
+			options.Animation = *animation
+		}
+		if *targetAnimation != "" {
+			options.TargetAnimation = *targetAnimation
+		}
+		if strings.TrimSpace(*timelines) != "" {
+			if err := json.Unmarshal([]byte(*timelines), &options.Timelines); err != nil {
+				return fmt.Errorf("parse --timelines: %w", err)
+			}
+		}
+		options.Apply = *apply
+		options.Overwrite = *overwrite
+		value, err := spineops.RewriteProjectTransform(options)
+		return printJSONMust(output, value, err)
 	case "patch":
 		flags := newFlags("patch", errorOutput)
 		inputPath := flags.String("file", "", "local Spine JSON input")
@@ -377,6 +436,7 @@ Usage:
   spine233-agent-cli animate-project --file character.spine --animation attack --end-before idle --edits JSON
   spine233-agent-cli animate-project-rotate --recipe agent-animation.json [--apply]
   spine233-agent-cli animate-project-transform --recipe agent-animation.json [--apply]
+  spine233-agent-cli rewrite-project-transform --recipe complete-animation.json [--apply]
   spine233-agent-cli patch     --file character.json --operations JSON [--output FILE --apply]
   spine233-agent-cli version
 

@@ -432,6 +432,98 @@ func PatchProjectTransform(
 	return result, nil
 }
 
+// ProjectTransformRewriteOptions controls declarative, fixed-topology
+// animation rewriting. The operation is preview-first.
+type ProjectTransformRewriteOptions struct {
+	InputPath       string                                        `json:"inputPath"`
+	OutputPath      string                                        `json:"outputPath,omitempty"`
+	Animation       string                                        `json:"animation"`
+	TargetAnimation string                                        `json:"targetAnimation,omitempty"`
+	Timelines       []spineparser.ProjectTransformTimelineRewrite `json:"timelines"`
+	Apply           bool                                          `json:"apply,omitempty"`
+	Overwrite       bool                                          `json:"overwrite,omitempty"`
+}
+
+// RewriteProjectTransform previews or applies complete transform timeline
+// declarations without invoking Spine Editor.
+func RewriteProjectTransform(
+	options ProjectTransformRewriteOptions,
+) (*ProjectTransformResult, error) {
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	patched, report, err := spineparser.RewriteProjectTransformTimelines(
+		document,
+		spineparser.ProjectTransformRewrite{
+			Animation:       options.Animation,
+			TargetAnimation: options.TargetAnimation,
+			Timelines:       options.Timelines,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := spineparser.SerializeProject(
+		patched,
+		spineparser.ProjectSerializeOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	verified, err := spineparser.DeserializeProject(encoded, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("verify serialized project: %w", err)
+	}
+	if !bytes.Equal(verified.Payload, patched.Payload) {
+		return nil, errors.New("verify serialized project: payload mismatch")
+	}
+	inputHash := sha256.Sum256(source)
+	outputHash := sha256.Sum256(encoded)
+	result := &ProjectTransformResult{
+		InputPath:         absoluteInput,
+		Applied:           false,
+		InputSHA256:       hex.EncodeToString(inputHash[:]),
+		OutputSHA256:      hex.EncodeToString(outputHash[:]),
+		CompressedBytes:   len(encoded),
+		UncompressedBytes: len(patched.Payload),
+		Patch:             report,
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	if strings.TrimSpace(options.OutputPath) == "" {
+		return nil, errors.New("outputPath is required when apply=true")
+	}
+	absoluteOutput, err := filepath.Abs(options.OutputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf(
+				"outputPath already exists; set overwrite=true: %s",
+				absoluteOutput,
+			)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	return result, nil
+}
+
 // Detect identifies a local Spine file without invoking Spine Editor.
 func Detect(path string) (*FileInfo, error) {
 	absolute, source, info, err := readFile(path)

@@ -433,6 +433,59 @@ func TestOfficialDemoTransformCoverage(t *testing.T) {
 	}
 }
 
+func TestRewriteProjectTransformOfficialHero(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	output := filepath.Join(t.TempDir(), "hero-agent.spine")
+	options := ProjectTransformRewriteOptions{
+		InputPath:       input,
+		OutputPath:      output,
+		Animation:       "attack",
+		TargetAnimation: "attack-agent",
+		Timelines: []spineparser.ProjectTransformTimelineRewrite{
+			{
+				BoneReference: 6,
+				Timeline:      spineparser.ProjectTimelineTranslate,
+				Keys: []spineparser.ProjectTransformKeySpec{
+					{Frame: 0, Values: []float32{-0.77, -1.89}},
+					{Frame: 5, Values: []float32{8, -0.24}},
+					{Frame: 6, Values: []float32{8.05, -2.44}},
+					{Frame: 12, Values: []float32{-0.77, -1.89}},
+				},
+			},
+		},
+	}
+	preview, err := RewriteProjectTransform(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied || len(preview.Patch.Changes) != 2 {
+		t.Fatalf("preview = %#v", preview)
+	}
+	options.Apply = true
+	applied, err := RewriteProjectTransform(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied {
+		t.Fatalf("applied = %#v", applied)
+	}
+	rewritten, err := ListProjectTransformTimelines(output, "attack-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, timeline := range rewritten.Directory.Timelines {
+		if timeline.BoneReference == 6 &&
+			timeline.Type == spineparser.ProjectTimelineTranslate {
+			if timeline.Keys[1].Frame != 5 ||
+				timeline.Keys[1].Values[0] != 8 {
+				t.Fatalf("timeline = %#v", timeline)
+			}
+			return
+		}
+	}
+	t.Fatal("rewritten translate timeline not found")
+}
+
 func mapsEqual(left, right map[string]int) bool {
 	if len(left) != len(right) {
 		return false
