@@ -153,6 +153,35 @@ func ListProjectAnimations(path string) (*ProjectAnimationList, error) {
 	}, nil
 }
 
+// ProjectBoneList is a directly decoded .spine bone directory.
+type ProjectBoneList struct {
+	Path         string                            `json:"path"`
+	SpineVersion string                            `json:"spineVersion,omitempty"`
+	Directory    *spineparser.ProjectBoneDirectory `json:"directory"`
+}
+
+// ListProjectBones decodes bone names, offsets, and parent references without
+// invoking Spine Editor.
+func ListProjectBones(path string) (*ProjectBoneList, error) {
+	absolute, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	directory, err := spineparser.DiscoverProjectBones(document.Payload)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectBoneList{
+		Path:         absolute,
+		SpineVersion: document.Inspection.SpineVersion,
+		Directory:    directory,
+	}, nil
+}
+
 // ProjectRotateTimelineList is a directly decoded .spine rotate directory.
 type ProjectRotateTimelineList struct {
 	Path         string                                      `json:"path"`
@@ -664,6 +693,14 @@ func Summarize(path string) (*Summary, error) {
 					result.Animations = append(result.Animations, record.Name)
 				}
 				result.Counts["animations"] = directory.Count
+			}
+			if bones, discoverErr := spineparser.DiscoverProjectBones(
+				document.Payload,
+			); discoverErr == nil {
+				for _, record := range bones.Records {
+					result.Bones = append(result.Bones, record.Name)
+				}
+				result.Counts["bones"] = bones.Count
 			}
 		}
 		result.ProjectStrings, result.Truncated = boundedNames(inspection.Strings, "projectStrings", result.Truncated)

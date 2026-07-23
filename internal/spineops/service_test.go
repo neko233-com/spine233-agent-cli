@@ -198,6 +198,45 @@ func TestListProjectAnimationsOfficialHero(t *testing.T) {
 	}
 }
 
+func TestListProjectBonesOfficialDemos(t *testing.T) {
+	tests := []struct {
+		project string
+		count   int
+		names   []string
+	}{
+		{"alien", 28, []string{"root", "body", "metaljaw", "splat"}},
+		{"hero", 44, []string{"root", "body", "head", "chain1"}},
+		{"raptor", 76, []string{"root", "front-arm", "head-control", "leg-control"}},
+	}
+	for _, test := range tests {
+		t.Run(test.project, func(t *testing.T) {
+			path := filepath.Join(
+				"..",
+				"..",
+				"demo",
+				test.project,
+				test.project+"-human.spine",
+			)
+			listed, err := ListProjectBones(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if listed.Directory.Count != test.count {
+				t.Fatalf("bone count = %d, want %d", listed.Directory.Count, test.count)
+			}
+			names := make(map[string]bool, listed.Directory.Count)
+			for _, record := range listed.Directory.Records {
+				names[record.Name] = true
+			}
+			for _, name := range test.names {
+				if !names[name] {
+					t.Fatalf("bone %q not found", name)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectRotateOfficialHero(t *testing.T) {
 	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
 	listed, err := ListProjectRotateTimelines(input, "attack")

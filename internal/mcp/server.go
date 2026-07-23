@@ -120,6 +120,10 @@ func tools() []map[string]any {
 			"inputSchema": schema(map[string]any{"path": path}, "path"),
 		},
 		{
+			"name": "spine_list_project_bones", "description": "Directly decode .spine bone names, serialization offsets, and parent Kryo references without Spine Editor.",
+			"inputSchema": schema(map[string]any{"path": path}, "path"),
+		},
+		{
 			"name": "spine_list_project_rotate_timelines", "description": "Decode one .spine animation's rotate timelines, bone references, frame numbers, values, curves, and exact offsets without Spine Editor.",
 			"inputSchema": schema(map[string]any{
 				"path":      path,
@@ -361,6 +365,14 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.ListProjectAnimations(args.Path)
+	case "spine_list_project_bones":
+		var args struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.ListProjectBones(args.Path)
 	case "spine_list_project_rotate_timelines":
 		var args struct {
 			Path      string `json:"path"`

@@ -17,6 +17,7 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - 检测 `.spine`、`.skel`、Spine JSON。
 - `.spine` 无损解包、检查、重新序列化。
 - 自动解析 `.spine` 动画数量、名称、偏移和记录边界。
+- 自动解析 `.spine` 骨骼名、对象偏移和父引用。
 - 语义解析 rotate/translate/scale/shear、骨骼引用、帧、值和曲线。
 - 按骨骼引用、时间线、关键帧和通道 fail-closed 修改动画。
 - 直接定位动画记录，fail-closed 修改大端 float32 关键帧。
@@ -24,7 +25,7 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - Spine JSON 动画克隆、重定时、骨骼时间线替换。
 - 声明式重写整条 transform 时间线，适合 Codex 生成完整动作。
 - 自动从已有动画生成 Codex 可编辑完整 recipe。
-- 16 个 stdio MCP 工具。
+- 17 个 stdio MCP 工具。
 
 ## 安装
 
@@ -41,6 +42,7 @@ spine233-agent-cli detect --file hero.spine
 spine233-agent-cli inspect --file hero.spine --output-dir .spine-diagnostics
 spine233-agent-cli summarize --file hero.spine
 spine233-agent-cli animations --file hero.spine
+spine233-agent-cli bones --file hero.spine
 spine233-agent-cli rotate-timelines --file hero.spine --animation attack
 spine233-agent-cli transform-timelines --file hero.spine --animation attack
 spine233-agent-cli scaffold-project-transform \
@@ -139,6 +141,7 @@ MCP 工具：
 | `spine_summarize` | 紧凑汇总 |
 | `spine_inspect_project` | `.spine` 解包诊断 |
 | `spine_list_project_animations` | 直接列出 `.spine` 动画目录 |
+| `spine_list_project_bones` | 直接列出 `.spine` 骨骼目录 |
 | `spine_list_project_rotate_timelines` | 语义列出 rotate 时间线 |
 | `spine_list_project_transform_timelines` | 列出骨骼变换时间线 |
 | `spine_build_project_transform_recipe` | 从已有动画生成完整 recipe |

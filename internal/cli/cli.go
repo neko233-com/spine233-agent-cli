@@ -53,6 +53,14 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 		}
 		value, err := spineops.ListProjectAnimations(*path)
 		return printJSONMust(output, value, err)
+	case "bones":
+		flags := newFlags("bones", errorOutput)
+		path := flags.String("file", "", "local .spine project")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		value, err := spineops.ListProjectBones(*path)
+		return printJSONMust(output, value, err)
 	case "rotate-timelines":
 		flags := newFlags("rotate-timelines", errorOutput)
 		path := flags.String("file", "", "local .spine project")
@@ -455,6 +463,7 @@ Usage:
   spine233-agent-cli detect    --file character.spine
   spine233-agent-cli summarize --file character.json
   spine233-agent-cli animations --file character.spine
+  spine233-agent-cli bones --file character.spine
   spine233-agent-cli rotate-timelines --file character.spine --animation attack
   spine233-agent-cli transform-timelines --file character.spine --animation attack
   spine233-agent-cli scaffold-project-transform --file character.spine --animation attack
