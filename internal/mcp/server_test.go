@@ -29,7 +29,7 @@ func TestServeInitializeAndToolsList(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools := listed["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 17 {
+	if len(tools) != 18 {
 		t.Fatalf("tool count = %d", len(tools))
 	}
 }

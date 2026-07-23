@@ -25,7 +25,7 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - Spine JSON 动画克隆、重定时、骨骼时间线替换。
 - 声明式重写整条 transform 时间线，适合 Codex 生成完整动作。
 - 自动从已有动画生成 Codex 可编辑完整 recipe。
-- 17 个 stdio MCP 工具。
+- 18 个 stdio MCP 工具。
 
 ## 安装
 
@@ -62,6 +62,12 @@ spine233-agent-cli rewrite-project-transform \
 spine233-agent-cli rewrite-project-transform \
   --recipe attack-agent-recipe.json \
   --apply
+
+spine233-agent-cli compare-project-transform \
+  --source hero-human.spine \
+  --source-animation attack \
+  --target hero-agent.spine \
+  --target-animation attack-agent
 ```
 
 语义修改 `.spine` rotate 动画，默认只预览：
@@ -147,6 +153,7 @@ MCP 工具：
 | `spine_list_project_bones` | 直接列出 `.spine` 骨骼目录 |
 | `spine_list_project_rotate_timelines` | 语义列出 rotate 时间线 |
 | `spine_list_project_transform_timelines` | 列出骨骼变换时间线 |
+| `spine_compare_project_transform_animation` | 验收 human/agent 动画名和语义差异 |
 | `spine_build_project_transform_recipe` | 从已有动画生成完整或过滤后的 recipe |
 | `spine_patch_project_animation` | 直接修改 `.spine` 动画关键帧 |
 | `spine_patch_project_rotate` | 语义修改 rotate 关键帧 |

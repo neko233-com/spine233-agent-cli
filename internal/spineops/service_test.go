@@ -607,6 +607,48 @@ func TestBuildProjectTransformRecipeFiltersOfficialHero(t *testing.T) {
 	}
 }
 
+func TestCompareProjectTransformAnimationsDemos(t *testing.T) {
+	tests := []struct {
+		role            string
+		sourceAnimation string
+		targetAnimation string
+		changes         int
+	}{
+		{role: "alien", sourceAnimation: "death", targetAnimation: "death-agent", changes: 8},
+		{role: "hero", sourceAnimation: "attack", targetAnimation: "attack-agent", changes: 4},
+		{role: "raptor", sourceAnimation: "gun-grab", targetAnimation: "gun-grab-agent", changes: 4},
+	}
+	for _, test := range tests {
+		t.Run(test.role, func(t *testing.T) {
+			directory := filepath.Join("..", "..", "demo", test.role)
+			comparison, err := CompareProjectTransformAnimations(
+				ProjectTransformComparisonOptions{
+					SourcePath: filepath.Join(
+						directory,
+						test.role+"-human.spine",
+					),
+					SourceAnimation: test.sourceAnimation,
+					TargetPath: filepath.Join(
+						directory,
+						test.role+"-agent.spine",
+					),
+					TargetAnimation: test.targetAnimation,
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !comparison.AgentReady ||
+				!comparison.AgentNameValid ||
+				!comparison.Compatible ||
+				!comparison.SemanticChanged ||
+				comparison.TotalChanges != test.changes {
+				t.Fatalf("comparison = %#v", comparison)
+			}
+		})
+	}
+}
+
 func mapsEqual(left, right map[string]int) bool {
 	if len(left) != len(right) {
 		return false

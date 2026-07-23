@@ -80,6 +80,26 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 		}
 		value, err := spineops.ListProjectTransformTimelines(*path, *animation)
 		return printJSONMust(output, value, err)
+	case "compare-project-transform":
+		flags := newFlags("compare-project-transform", errorOutput)
+		sourcePath := flags.String("source", "", "source .spine project")
+		sourceAnimation := flags.String("source-animation", "", "source animation")
+		targetPath := flags.String("target", "", "target .spine project")
+		targetAnimation := flags.String("target-animation", "", "target animation")
+		maxChanges := flags.Int("max-changes", 1000, "maximum returned differences")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		value, err := spineops.CompareProjectTransformAnimations(
+			spineops.ProjectTransformComparisonOptions{
+				SourcePath:      *sourcePath,
+				SourceAnimation: *sourceAnimation,
+				TargetPath:      *targetPath,
+				TargetAnimation: *targetAnimation,
+				MaxChanges:      *maxChanges,
+			},
+		)
+		return printJSONMust(output, value, err)
 	case "scaffold-project-transform":
 		flags := newFlags("scaffold-project-transform", errorOutput)
 		path := flags.String("file", "", "local .spine project")
@@ -512,6 +532,7 @@ Usage:
   spine233-agent-cli bones --file character.spine
   spine233-agent-cli rotate-timelines --file character.spine --animation attack
   spine233-agent-cli transform-timelines --file character.spine --animation attack
+  spine233-agent-cli compare-project-transform --source human.spine --source-animation attack --target agent.spine --target-animation attack-agent
   spine233-agent-cli scaffold-project-transform --file character.spine --animation attack
   spine233-agent-cli inspect   --file character.spine [--output-dir DIR]
   spine233-agent-cli query     --file character.json --pointer /animations/walk

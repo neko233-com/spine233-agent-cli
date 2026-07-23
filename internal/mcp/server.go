@@ -138,6 +138,21 @@ func tools() []map[string]any {
 			}, "path", "animation"),
 		},
 		{
+			"name": "spine_compare_project_transform_animation", "description": "Read-only semantic comparison of human and agent .spine animations. Verifies {animation}-agent naming, fixed topology, and changed frames, values, or curves.",
+			"inputSchema": schema(map[string]any{
+				"sourcePath":      path,
+				"sourceAnimation": map[string]any{"type": "string"},
+				"targetPath":      path,
+				"targetAnimation": map[string]any{"type": "string"},
+				"maxChanges": map[string]any{
+					"type":    "integer",
+					"minimum": 1,
+					"maximum": 100000,
+					"default": 1000,
+				},
+			}, "sourcePath", "sourceAnimation", "targetPath", "targetAnimation"),
+		},
+		{
 			"name": "spine_build_project_transform_recipe", "description": "Build a full or filtered editable rewrite recipe from an existing .spine animation. Defaults target to {animation}-agent and output to sibling *-agent.spine. Does not write.",
 			"inputSchema": schema(map[string]any{
 				"path":            path,
@@ -404,6 +419,12 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.ListProjectTransformTimelines(args.Path, args.Animation)
+	case "spine_compare_project_transform_animation":
+		var args spineops.ProjectTransformComparisonOptions
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.CompareProjectTransformAnimations(args)
 	case "spine_build_project_transform_recipe":
 		var args struct {
 			Path            string   `json:"path"`

@@ -356,6 +356,244 @@ func ListProjectTransformTimelines(
 	}, nil
 }
 
+// ProjectTransformComparisonOptions controls a read-only semantic comparison.
+type ProjectTransformComparisonOptions struct {
+	SourcePath      string `json:"sourcePath"`
+	SourceAnimation string `json:"sourceAnimation"`
+	TargetPath      string `json:"targetPath"`
+	TargetAnimation string `json:"targetAnimation"`
+	MaxChanges      int    `json:"maxChanges,omitempty"`
+}
+
+// ProjectTransformDifference reports one changed frame, value, or curve
+// control.
+type ProjectTransformDifference struct {
+	BoneReference int     `json:"boneReference"`
+	Timeline      string  `json:"timeline"`
+	KeyIndex      int     `json:"keyIndex"`
+	Channel       string  `json:"channel"`
+	SourceValue   float32 `json:"sourceValue"`
+	TargetValue   float32 `json:"targetValue"`
+}
+
+// ProjectTransformComparison reports whether a human/agent animation pair is
+// topology-compatible and semantically different.
+type ProjectTransformComparison struct {
+	SourcePath              string                       `json:"sourcePath"`
+	TargetPath              string                       `json:"targetPath"`
+	SourceAnimation         string                       `json:"sourceAnimation"`
+	TargetAnimation         string                       `json:"targetAnimation"`
+	ExpectedTargetAnimation string                       `json:"expectedTargetAnimation"`
+	AgentNameValid          bool                         `json:"agentNameValid"`
+	Compatible              bool                         `json:"compatible"`
+	SemanticChanged         bool                         `json:"semanticChanged"`
+	AgentReady              bool                         `json:"agentReady"`
+	SourceTimelineCount     int                          `json:"sourceTimelineCount"`
+	TargetTimelineCount     int                          `json:"targetTimelineCount"`
+	TotalChanges            int                          `json:"totalChanges"`
+	Changes                 []ProjectTransformDifference `json:"changes"`
+	Truncated               bool                         `json:"truncated,omitempty"`
+	TopologyIssues          []string                     `json:"topologyIssues,omitempty"`
+}
+
+// CompareProjectTransformAnimations compares two .spine animations without
+// writing files or invoking Spine Editor.
+func CompareProjectTransformAnimations(
+	options ProjectTransformComparisonOptions,
+) (*ProjectTransformComparison, error) {
+	if options.MaxChanges == 0 {
+		options.MaxChanges = 1000
+	}
+	if options.MaxChanges < 1 || options.MaxChanges > 100_000 {
+		return nil, errors.New("maxChanges must be between 1 and 100000")
+	}
+	source, err := ListProjectTransformTimelines(
+		options.SourcePath,
+		options.SourceAnimation,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("source animation: %w", err)
+	}
+	target, err := ListProjectTransformTimelines(
+		options.TargetPath,
+		options.TargetAnimation,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("target animation: %w", err)
+	}
+	type timelineKey struct {
+		BoneReference int
+		Type          string
+	}
+	sourceByKey := make(map[timelineKey]spineparser.ProjectTransformTimeline)
+	targetByKey := make(map[timelineKey]spineparser.ProjectTransformTimeline)
+	issues := make([]string, 0)
+	indexTimelines := func(
+		label string,
+		timelines []spineparser.ProjectTransformTimeline,
+		index map[timelineKey]spineparser.ProjectTransformTimeline,
+	) {
+		for _, timeline := range timelines {
+			key := timelineKey{
+				BoneReference: timeline.BoneReference,
+				Type:          timeline.Type,
+			}
+			if _, exists := index[key]; exists {
+				issues = append(
+					issues,
+					fmt.Sprintf(
+						"%s has duplicate boneReference %d %s timeline",
+						label,
+						key.BoneReference,
+						key.Type,
+					),
+				)
+				continue
+			}
+			index[key] = timeline
+		}
+	}
+	indexTimelines("source", source.Directory.Timelines, sourceByKey)
+	indexTimelines("target", target.Directory.Timelines, targetByKey)
+
+	keys := make([]timelineKey, 0, len(sourceByKey)+len(targetByKey))
+	seenKeys := make(map[timelineKey]struct{})
+	for key := range sourceByKey {
+		seenKeys[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	for key := range targetByKey {
+		if _, exists := seenKeys[key]; !exists {
+			keys = append(keys, key)
+		}
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].BoneReference != keys[right].BoneReference {
+			return keys[left].BoneReference < keys[right].BoneReference
+		}
+		return keys[left].Type < keys[right].Type
+	})
+
+	changes := make([]ProjectTransformDifference, 0)
+	totalChanges := 0
+	appendChange := func(
+		key timelineKey,
+		keyIndex int,
+		channel string,
+		sourceValue float32,
+		targetValue float32,
+	) {
+		if sourceValue == targetValue {
+			return
+		}
+		totalChanges++
+		if len(changes) < options.MaxChanges {
+			changes = append(changes, ProjectTransformDifference{
+				BoneReference: key.BoneReference,
+				Timeline:      key.Type,
+				KeyIndex:      keyIndex,
+				Channel:       channel,
+				SourceValue:   sourceValue,
+				TargetValue:   targetValue,
+			})
+		}
+	}
+	for _, key := range keys {
+		sourceTimeline, sourceExists := sourceByKey[key]
+		targetTimeline, targetExists := targetByKey[key]
+		if !sourceExists || !targetExists {
+			missingFrom := "target"
+			if !sourceExists {
+				missingFrom = "source"
+			}
+			issues = append(issues, fmt.Sprintf(
+				"%s is missing boneReference %d %s timeline",
+				missingFrom,
+				key.BoneReference,
+				key.Type,
+			))
+			continue
+		}
+		if len(sourceTimeline.Channels) != len(targetTimeline.Channels) {
+			issues = append(issues, fmt.Sprintf(
+				"boneReference %d %s channel count differs: %d != %d",
+				key.BoneReference,
+				key.Type,
+				len(sourceTimeline.Channels),
+				len(targetTimeline.Channels),
+			))
+			continue
+		}
+		if len(sourceTimeline.Keys) != len(targetTimeline.Keys) {
+			issues = append(issues, fmt.Sprintf(
+				"boneReference %d %s key count differs: %d != %d",
+				key.BoneReference,
+				key.Type,
+				len(sourceTimeline.Keys),
+				len(targetTimeline.Keys),
+			))
+			continue
+		}
+		for keyIndex := range sourceTimeline.Keys {
+			sourceKey := sourceTimeline.Keys[keyIndex]
+			targetKey := targetTimeline.Keys[keyIndex]
+			appendChange(key, keyIndex, "frame", sourceKey.Frame, targetKey.Frame)
+			channelCount := len(sourceTimeline.Channels)
+			if len(sourceKey.Values) != channelCount ||
+				len(targetKey.Values) != channelCount ||
+				len(sourceKey.Curves) != channelCount ||
+				len(targetKey.Curves) != channelCount {
+				issues = append(issues, fmt.Sprintf(
+					"boneReference %d %s key %d value/curve topology differs",
+					key.BoneReference,
+					key.Type,
+					keyIndex,
+				))
+				continue
+			}
+			for channelIndex, channel := range sourceTimeline.Channels {
+				appendChange(
+					key,
+					keyIndex,
+					channel,
+					sourceKey.Values[channelIndex],
+					targetKey.Values[channelIndex],
+				)
+				for controlIndex := range sourceKey.Curves[channelIndex] {
+					appendChange(
+						key,
+						keyIndex,
+						fmt.Sprintf("curve.%s.%d", channel, controlIndex),
+						sourceKey.Curves[channelIndex][controlIndex],
+						targetKey.Curves[channelIndex][controlIndex],
+					)
+				}
+			}
+		}
+	}
+	expectedTarget := options.SourceAnimation + "-agent"
+	compatible := len(issues) == 0
+	semanticChanged := totalChanges > 0
+	agentNameValid := options.TargetAnimation == expectedTarget
+	return &ProjectTransformComparison{
+		SourcePath:              source.Path,
+		TargetPath:              target.Path,
+		SourceAnimation:         options.SourceAnimation,
+		TargetAnimation:         options.TargetAnimation,
+		ExpectedTargetAnimation: expectedTarget,
+		AgentNameValid:          agentNameValid,
+		Compatible:              compatible,
+		SemanticChanged:         semanticChanged,
+		AgentReady:              compatible && semanticChanged && agentNameValid,
+		SourceTimelineCount:     len(source.Directory.Timelines),
+		TargetTimelineCount:     len(target.Directory.Timelines),
+		TotalChanges:            totalChanges,
+		Changes:                 changes,
+		Truncated:               totalChanges > len(changes),
+		TopologyIssues:          issues,
+	}, nil
+}
+
 // ProjectTransformOptions controls semantic bone transform edits. The
 // operation is preview-first and never overwrites input.
 type ProjectTransformOptions struct {
