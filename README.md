@@ -17,7 +17,7 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - 检测 `.spine`、`.skel`、Spine JSON。
 - `.spine` 无损解包、检查、重新序列化。
 - 自动解析 `.spine` 动画数量、名称、偏移和记录边界。
-- 自动解析 `.spine` 骨骼名、对象偏移和父引用。
+- 自动解析 `.spine` 骨骼名、对象偏移和原始父对象 token。
 - 语义解析 rotate/translate/scale/shear、骨骼引用、帧、值和曲线。
 - 按骨骼引用、时间线、关键帧和通道 fail-closed 修改动画。
 - 直接定位动画记录，fail-closed 修改大端 float32 关键帧。

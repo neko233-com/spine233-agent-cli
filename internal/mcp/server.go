@@ -120,7 +120,7 @@ func tools() []map[string]any {
 			"inputSchema": schema(map[string]any{"path": path}, "path"),
 		},
 		{
-			"name": "spine_list_project_bones", "description": "Directly decode .spine bone names, serialization offsets, and parent Kryo references without Spine Editor.",
+			"name": "spine_list_project_bones", "description": "Directly decode .spine bone names, serialization offsets, and raw Kryo parent tokens without Spine Editor.",
 			"inputSchema": schema(map[string]any{"path": path}, "path"),
 		},
 		{

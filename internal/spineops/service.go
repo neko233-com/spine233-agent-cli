@@ -160,7 +160,7 @@ type ProjectBoneList struct {
 	Directory    *spineparser.ProjectBoneDirectory `json:"directory"`
 }
 
-// ListProjectBones decodes bone names, offsets, and parent references without
+// ListProjectBones decodes bone names, offsets, and raw parent tokens without
 // invoking Spine Editor.
 func ListProjectBones(path string) (*ProjectBoneList, error) {
 	absolute, source, _, err := readFile(path)
