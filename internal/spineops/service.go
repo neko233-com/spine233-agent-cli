@@ -357,6 +357,159 @@ func ListProjectTransformTimelines(
 	}, nil
 }
 
+// ProjectSlotAttachmentTimelineList is a directly decoded .spine slot
+// attachment timeline directory.
+type ProjectSlotAttachmentTimelineList struct {
+	Path         string                                              `json:"path"`
+	SpineVersion string                                              `json:"spineVersion,omitempty"`
+	Directory    *spineparser.ProjectSlotAttachmentTimelineDirectory `json:"directory"`
+}
+
+// ListProjectSlotAttachmentTimelines decodes one animation's attachment-switch
+// keyframes without invoking Spine Editor.
+func ListProjectSlotAttachmentTimelines(
+	path string,
+	animation string,
+) (*ProjectSlotAttachmentTimelineList, error) {
+	absolute, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(
+		source,
+		spineparser.InspectOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	directory, err := spineparser.DiscoverProjectSlotAttachmentTimelines(
+		document.Payload,
+		animation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectSlotAttachmentTimelineList{
+		Path:         absolute,
+		SpineVersion: document.Inspection.SpineVersion,
+		Directory:    directory,
+	}, nil
+}
+
+// ProjectSlotAttachmentOptions controls semantic attachment-key retiming.
+type ProjectSlotAttachmentOptions struct {
+	InputPath       string                                       `json:"inputPath"`
+	OutputPath      string                                       `json:"outputPath,omitempty"`
+	Animation       string                                       `json:"animation"`
+	TargetAnimation string                                       `json:"targetAnimation,omitempty"`
+	Edits           []spineparser.ProjectSlotAttachmentFrameEdit `json:"edits"`
+	Apply           bool                                         `json:"apply,omitempty"`
+	Overwrite       bool                                         `json:"overwrite,omitempty"`
+}
+
+// ProjectSlotAttachmentResult reports an attachment retiming preview or new
+// project.
+type ProjectSlotAttachmentResult struct {
+	InputPath         string                                       `json:"inputPath"`
+	OutputPath        string                                       `json:"outputPath,omitempty"`
+	Applied           bool                                         `json:"applied"`
+	InputSHA256       string                                       `json:"inputSha256"`
+	OutputSHA256      string                                       `json:"outputSha256"`
+	CompressedBytes   int                                          `json:"compressedBytes"`
+	UncompressedBytes int                                          `json:"uncompressedBytes"`
+	Patch             spineparser.ProjectSlotAttachmentPatchReport `json:"patch"`
+}
+
+// PatchProjectSlotAttachment previews or applies exact attachment-key frame
+// edits without invoking Spine Editor.
+func PatchProjectSlotAttachment(
+	options ProjectSlotAttachmentOptions,
+) (*ProjectSlotAttachmentResult, error) {
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(
+		source,
+		spineparser.InspectOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	targetAnimation := strings.TrimSpace(options.TargetAnimation)
+	if targetAnimation == "" {
+		targetAnimation = options.Animation + "-agent"
+	}
+	patched, report, err := spineparser.PatchProjectSlotAttachmentFrames(
+		document,
+		spineparser.ProjectSlotAttachmentPatch{
+			Animation:       options.Animation,
+			TargetAnimation: targetAnimation,
+			Edits:           options.Edits,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := spineparser.SerializeProject(
+		patched,
+		spineparser.ProjectSerializeOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	verified, err := spineparser.DeserializeProject(
+		encoded,
+		spineparser.InspectOptions{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("verify serialized project: %w", err)
+	}
+	if !bytes.Equal(verified.Payload, patched.Payload) {
+		return nil, errors.New("verify serialized project: payload mismatch")
+	}
+	inputHash := sha256.Sum256(source)
+	outputHash := sha256.Sum256(encoded)
+	result := &ProjectSlotAttachmentResult{
+		InputPath:         absoluteInput,
+		InputSHA256:       hex.EncodeToString(inputHash[:]),
+		OutputSHA256:      hex.EncodeToString(outputHash[:]),
+		CompressedBytes:   len(encoded),
+		UncompressedBytes: len(patched.Payload),
+		Patch:             report,
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	outputPath := options.OutputPath
+	if strings.TrimSpace(outputPath) == "" {
+		outputPath = defaultAgentProjectPath(absoluteInput)
+	}
+	absoluteOutput, err := filepath.Abs(outputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf(
+				"outputPath already exists; set overwrite=true: %s",
+				absoluteOutput,
+			)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	return result, nil
+}
+
 // ProjectTransformComparisonOptions controls a read-only semantic comparison.
 type ProjectTransformComparisonOptions struct {
 	SourcePath      string `json:"sourcePath"`
@@ -380,21 +533,24 @@ type ProjectTransformDifference struct {
 // ProjectTransformComparison reports whether a human/agent animation pair is
 // topology-compatible and semantically different.
 type ProjectTransformComparison struct {
-	SourcePath              string                       `json:"sourcePath"`
-	TargetPath              string                       `json:"targetPath"`
-	SourceAnimation         string                       `json:"sourceAnimation"`
-	TargetAnimation         string                       `json:"targetAnimation"`
-	ExpectedTargetAnimation string                       `json:"expectedTargetAnimation"`
-	AgentNameValid          bool                         `json:"agentNameValid"`
-	Compatible              bool                         `json:"compatible"`
-	SemanticChanged         bool                         `json:"semanticChanged"`
-	AgentReady              bool                         `json:"agentReady"`
-	SourceTimelineCount     int                          `json:"sourceTimelineCount"`
-	TargetTimelineCount     int                          `json:"targetTimelineCount"`
-	TotalChanges            int                          `json:"totalChanges"`
-	Changes                 []ProjectTransformDifference `json:"changes"`
-	Truncated               bool                         `json:"truncated,omitempty"`
-	TopologyIssues          []string                     `json:"topologyIssues,omitempty"`
+	SourcePath                string                       `json:"sourcePath"`
+	TargetPath                string                       `json:"targetPath"`
+	SourceAnimation           string                       `json:"sourceAnimation"`
+	TargetAnimation           string                       `json:"targetAnimation"`
+	ExpectedTargetAnimation   string                       `json:"expectedTargetAnimation"`
+	AgentNameValid            bool                         `json:"agentNameValid"`
+	Compatible                bool                         `json:"compatible"`
+	SemanticChanged           bool                         `json:"semanticChanged"`
+	TransformReady            bool                         `json:"transformReady"`
+	AgentReady                bool                         `json:"agentReady"`
+	CompleteAnimationVerified bool                         `json:"completeAnimationVerified"`
+	CapabilityGaps            []string                     `json:"capabilityGaps,omitempty"`
+	SourceTimelineCount       int                          `json:"sourceTimelineCount"`
+	TargetTimelineCount       int                          `json:"targetTimelineCount"`
+	TotalChanges              int                          `json:"totalChanges"`
+	Changes                   []ProjectTransformDifference `json:"changes"`
+	Truncated                 bool                         `json:"truncated,omitempty"`
+	TopologyIssues            []string                     `json:"topologyIssues,omitempty"`
 }
 
 // CompareProjectTransformAnimations compares two .spine animations without
@@ -576,22 +732,32 @@ func CompareProjectTransformAnimations(
 	compatible := len(issues) == 0
 	semanticChanged := totalChanges > 0
 	agentNameValid := options.TargetAnimation == expectedTarget
+	transformReady := compatible && semanticChanged && agentNameValid
+	capabilityGaps := []string{
+		"comparison excludes slot attachment and color timelines",
+		"comparison excludes deform and draw-order timelines",
+		"comparison excludes events and constraint timelines",
+		"comparison excludes curve type flags",
+	}
 	return &ProjectTransformComparison{
-		SourcePath:              source.Path,
-		TargetPath:              target.Path,
-		SourceAnimation:         options.SourceAnimation,
-		TargetAnimation:         options.TargetAnimation,
-		ExpectedTargetAnimation: expectedTarget,
-		AgentNameValid:          agentNameValid,
-		Compatible:              compatible,
-		SemanticChanged:         semanticChanged,
-		AgentReady:              compatible && semanticChanged && agentNameValid,
-		SourceTimelineCount:     len(source.Directory.Timelines),
-		TargetTimelineCount:     len(target.Directory.Timelines),
-		TotalChanges:            totalChanges,
-		Changes:                 changes,
-		Truncated:               totalChanges > len(changes),
-		TopologyIssues:          issues,
+		SourcePath:                source.Path,
+		TargetPath:                target.Path,
+		SourceAnimation:           options.SourceAnimation,
+		TargetAnimation:           options.TargetAnimation,
+		ExpectedTargetAnimation:   expectedTarget,
+		AgentNameValid:            agentNameValid,
+		Compatible:                compatible,
+		SemanticChanged:           semanticChanged,
+		TransformReady:            transformReady,
+		AgentReady:                false,
+		CompleteAnimationVerified: false,
+		CapabilityGaps:            capabilityGaps,
+		SourceTimelineCount:       len(source.Directory.Timelines),
+		TargetTimelineCount:       len(target.Directory.Timelines),
+		TotalChanges:              totalChanges,
+		Changes:                   changes,
+		Truncated:                 totalChanges > len(changes),
+		TopologyIssues:            issues,
 	}, nil
 }
 

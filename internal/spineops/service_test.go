@@ -639,7 +639,10 @@ func TestCompareProjectTransformAnimationsDemos(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !comparison.AgentReady ||
+			if !comparison.TransformReady ||
+				comparison.AgentReady ||
+				comparison.CompleteAnimationVerified ||
+				len(comparison.CapabilityGaps) == 0 ||
 				!comparison.AgentNameValid ||
 				!comparison.Compatible ||
 				!comparison.SemanticChanged ||
@@ -691,7 +694,9 @@ func TestProgramProjectTransformOfficialHero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !comparison.AgentReady || comparison.TotalChanges != 1 {
+	if !comparison.TransformReady ||
+		comparison.AgentReady ||
+		comparison.TotalChanges != 1 {
 		t.Fatalf("comparison = %#v", comparison)
 	}
 }
@@ -716,6 +721,69 @@ func TestProgramProjectTransformRejectsMatchDrift(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "matched 1 keys, expected 2") {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+func TestListAndPatchProjectSlotAttachmentOfficialAlien(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "alien", "alien-human.spine")
+	listed, err := ListProjectSlotAttachmentTimelines(input, "death")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyCount := 0
+	var selected *spineparser.ProjectSlotAttachmentTimeline
+	for index := range listed.Directory.Timelines {
+		timeline := &listed.Directory.Timelines[index]
+		keyCount += len(timeline.Keys)
+		if selected == nil && len(timeline.Keys) >= 2 &&
+			timeline.Keys[0].Frame < timeline.Keys[1].Frame {
+			selected = timeline
+		}
+	}
+	if len(listed.Directory.Timelines) != 7 || keyCount != 14 || selected == nil {
+		t.Fatalf("directory = %#v", listed.Directory)
+	}
+	from := selected.Keys[0].Frame
+	to := from + (selected.Keys[1].Frame-from)/2
+	output := filepath.Join(t.TempDir(), "alien-agent.spine")
+	patched, err := PatchProjectSlotAttachment(ProjectSlotAttachmentOptions{
+		InputPath:  input,
+		OutputPath: output,
+		Animation:  "death",
+		Edits: []spineparser.ProjectSlotAttachmentFrameEdit{
+			{
+				SlotReference:     selected.SlotReference,
+				TimelineReference: selected.TimelineReference,
+				TimelineOffset:    selected.Offset,
+				KeyIndex:          0,
+				From:              from,
+				To:                to,
+			},
+		},
+		Apply: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !patched.Applied ||
+		patched.Patch.TargetAnimation != "death-agent" ||
+		len(patched.Patch.Changes) != 1 {
+		t.Fatalf("patched = %#v", patched)
+	}
+	rediscovered, err := ListProjectSlotAttachmentTimelines(
+		output,
+		"death-agent",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, timeline := range rediscovered.Directory.Timelines {
+		if timeline.SlotReference == selected.SlotReference &&
+			timeline.TimelineReference == selected.TimelineReference &&
+			timeline.Keys[0].Frame == to {
+			return
+		}
+	}
+	t.Fatal("patched slot attachment timeline not found")
 }
 
 func mapsEqual(left, right map[string]int) bool {

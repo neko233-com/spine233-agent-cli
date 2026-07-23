@@ -112,3 +112,32 @@ func TestRunProgramProjectTransformPreview(t *testing.T) {
 		t.Fatalf("result = %s", output.String())
 	}
 }
+
+func TestRunListProjectSlotAttachmentTimelines(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "alien", "alien-human.spine")
+	output := new(bytes.Buffer)
+	if err := Run(
+		context.Background(),
+		[]string{
+			"slot-attachment-timelines",
+			"--file", input,
+			"--animation", "death",
+		},
+		bytes.NewReader(nil),
+		output,
+		new(bytes.Buffer),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Directory struct {
+			Timelines []any `json:"timelines"`
+		} `json:"directory"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Directory.Timelines) != 7 {
+		t.Fatalf("result = %s", output.String())
+	}
+}

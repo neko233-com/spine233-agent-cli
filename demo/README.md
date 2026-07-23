@@ -47,8 +47,9 @@ spine233-agent-cli compare-project-transform \
   --target-animation gun-grab-agent
 ```
 
-当前语义验收：Alien 8、Hero 4、Raptor 4 个关键帧值不同；三者均满足
-`agentReady=true`（动画名正确、拓扑兼容、动画数据确有变化）。
+当前 transform 语义验收：Alien 8、Hero 4、Raptor 4 个关键帧值不同；三者
+均满足 `transformReady=true`。`agentReady` 保留给全部动画族都完成并验证后
+使用，当前明确为 `false`。
 
 每个目录保持官方工程布局，包括 `.spine`、`images/`、官方导出文件和该
 工程的 `license.txt`。这些文件仅用于测试与评估；使用者仍需遵守目录内许可

@@ -19,13 +19,14 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - 自动解析 `.spine` 动画数量、名称、偏移和记录边界。
 - 自动解析 `.spine` 骨骼名、对象偏移和原始父对象 token。
 - 语义解析 rotate/translate/scale/shear、骨骼引用、帧、值和曲线。
+- 解析并重定时 slot attachment 切换关键帧。
 - 按骨骼引用、时间线、关键帧和通道 fail-closed 修改动画。
 - 直接定位动画记录，fail-closed 修改大端 float32 关键帧。
 - Spine JSON 深度分析、引用验证、查询、Patch。
 - Spine JSON 动画克隆、重定时、骨骼时间线替换。
 - 声明式重写整条 transform 时间线，适合 Codex 生成完整动作。
 - 自动从已有动画生成 Codex 可编辑完整 recipe。
-- 19 个 stdio MCP 工具。
+- 21 个 stdio MCP 工具。
 
 ## 安装
 
@@ -45,6 +46,7 @@ spine233-agent-cli animations --file hero.spine
 spine233-agent-cli bones --file hero.spine
 spine233-agent-cli rotate-timelines --file hero.spine --animation attack
 spine233-agent-cli transform-timelines --file hero.spine --animation attack
+spine233-agent-cli slot-attachment-timelines --file alien.spine --animation death
 spine233-agent-cli scaffold-project-transform \
   --file hero-human.spine \
   --animation attack \
@@ -163,12 +165,14 @@ MCP 工具：
 | `spine_list_project_bones` | 直接列出 `.spine` 骨骼目录 |
 | `spine_list_project_rotate_timelines` | 语义列出 rotate 时间线 |
 | `spine_list_project_transform_timelines` | 列出骨骼变换时间线 |
+| `spine_list_project_slot_attachment_timelines` | 列出 attachment 切换关键帧 |
 | `spine_compare_project_transform_animation` | 验收 human/agent 动画名和语义差异 |
 | `spine_build_project_transform_recipe` | 从已有动画生成完整或过滤后的 recipe |
 | `spine_program_project_transform_animation` | 批量生成受 match 数保护的精确编辑 |
 | `spine_patch_project_animation` | 直接修改 `.spine` 动画关键帧 |
 | `spine_patch_project_rotate` | 语义修改 rotate 关键帧 |
 | `spine_patch_project_transform` | 修改骨骼变换关键帧 |
+| `spine_patch_project_slot_attachment` | 重定时已有 attachment 关键帧 |
 | `spine_rewrite_project_transform_animation` | 声明式重写完整变换时间线 |
 | `spine_query_json` | JSON Pointer 查询 |
 | `spine_patch_json` | JSON Patch |
