@@ -74,6 +74,7 @@ spine233-agent-cli animate-project-transform \
 `boneReference`、`timeline`、`keyIndex`、`channel`、`from` 任一不符时失败，
 避免布局或 Agent 计划漂移造成误改。rotate 专用和原始 float32 模式继续兼容。
 `channel:"frame"` 可直接重定时；输出会校验每条时间线帧号严格递增。
+`channel:"curve.x.0"` 等可修改已存储的通道曲线控制值。
 
 Spine JSON 操作：
 
