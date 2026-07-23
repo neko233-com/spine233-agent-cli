@@ -291,6 +291,147 @@ func PatchProjectRotate(options ProjectRotateOptions) (*ProjectRotateResult, err
 	return result, nil
 }
 
+// ProjectTransformTimelineList is a directly decoded .spine bone transform
+// timeline directory.
+type ProjectTransformTimelineList struct {
+	Path         string                                         `json:"path"`
+	SpineVersion string                                         `json:"spineVersion,omitempty"`
+	Directory    *spineparser.ProjectTransformTimelineDirectory `json:"directory"`
+}
+
+// ListProjectTransformTimelines decodes rotate, translate, scale, and shear
+// tracks and keys without invoking Spine Editor.
+func ListProjectTransformTimelines(
+	path string,
+	animation string,
+) (*ProjectTransformTimelineList, error) {
+	absolute, source, _, err := readFile(path)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	directory, err := spineparser.DiscoverProjectTransformTimelines(
+		document.Payload,
+		animation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &ProjectTransformTimelineList{
+		Path:         absolute,
+		SpineVersion: document.Inspection.SpineVersion,
+		Directory:    directory,
+	}, nil
+}
+
+// ProjectTransformOptions controls semantic bone transform edits. The
+// operation is preview-first and never overwrites input.
+type ProjectTransformOptions struct {
+	InputPath       string                                  `json:"inputPath"`
+	OutputPath      string                                  `json:"outputPath,omitempty"`
+	Animation       string                                  `json:"animation"`
+	TargetAnimation string                                  `json:"targetAnimation,omitempty"`
+	Edits           []spineparser.ProjectTransformValueEdit `json:"edits"`
+	Apply           bool                                    `json:"apply,omitempty"`
+	Overwrite       bool                                    `json:"overwrite,omitempty"`
+}
+
+// ProjectTransformResult reports a semantic transform preview or new project.
+type ProjectTransformResult struct {
+	InputPath         string                                  `json:"inputPath"`
+	OutputPath        string                                  `json:"outputPath,omitempty"`
+	Applied           bool                                    `json:"applied"`
+	InputSHA256       string                                  `json:"inputSha256"`
+	OutputSHA256      string                                  `json:"outputSha256"`
+	CompressedBytes   int                                     `json:"compressedBytes"`
+	UncompressedBytes int                                     `json:"uncompressedBytes"`
+	Patch             spineparser.ProjectTransformPatchReport `json:"patch"`
+}
+
+// PatchProjectTransform previews or applies semantic rotate, translate,
+// scale, and shear key edits without invoking Spine Editor.
+func PatchProjectTransform(
+	options ProjectTransformOptions,
+) (*ProjectTransformResult, error) {
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(source, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	patched, report, err := spineparser.PatchProjectTransformValues(
+		document,
+		spineparser.ProjectTransformPatch{
+			Animation:       options.Animation,
+			TargetAnimation: options.TargetAnimation,
+			Edits:           options.Edits,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := spineparser.SerializeProject(
+		patched,
+		spineparser.ProjectSerializeOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	verified, err := spineparser.DeserializeProject(encoded, spineparser.InspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("verify serialized project: %w", err)
+	}
+	if !bytes.Equal(verified.Payload, patched.Payload) {
+		return nil, errors.New("verify serialized project: payload mismatch")
+	}
+
+	inputHash := sha256.Sum256(source)
+	outputHash := sha256.Sum256(encoded)
+	result := &ProjectTransformResult{
+		InputPath:         absoluteInput,
+		Applied:           false,
+		InputSHA256:       hex.EncodeToString(inputHash[:]),
+		OutputSHA256:      hex.EncodeToString(outputHash[:]),
+		CompressedBytes:   len(encoded),
+		UncompressedBytes: len(patched.Payload),
+		Patch:             report,
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	if strings.TrimSpace(options.OutputPath) == "" {
+		return nil, errors.New("outputPath is required when apply=true")
+	}
+	absoluteOutput, err := filepath.Abs(options.OutputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf(
+				"outputPath already exists; set overwrite=true: %s",
+				absoluteOutput,
+			)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	return result, nil
+}
+
 // Detect identifies a local Spine file without invoking Spine Editor.
 func Detect(path string) (*FileInfo, error) {
 	absolute, source, info, err := readFile(path)

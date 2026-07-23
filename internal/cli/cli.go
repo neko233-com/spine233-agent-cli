@@ -62,6 +62,15 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 		}
 		value, err := spineops.ListProjectRotateTimelines(*path, *animation)
 		return printJSONMust(output, value, err)
+	case "transform-timelines":
+		flags := newFlags("transform-timelines", errorOutput)
+		path := flags.String("file", "", "local .spine project")
+		animation := flags.String("animation", "", "animation record name")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		value, err := spineops.ListProjectTransformTimelines(*path, *animation)
+		return printJSONMust(output, value, err)
 	case "inspect":
 		flags := newFlags("inspect", errorOutput)
 		path := flags.String("file", "", "local .spine project")
@@ -243,6 +252,65 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 		options.Overwrite = *overwrite
 		value, err := spineops.PatchProjectRotate(options)
 		return printJSONMust(output, value, err)
+	case "animate-project-transform":
+		flags := newFlags("animate-project-transform", errorOutput)
+		recipePath := flags.String("recipe", "", "semantic transform recipe JSON")
+		inputPath := flags.String("file", "", "local .spine input")
+		outputPath := flags.String("output", "", "new .spine output")
+		animation := flags.String("animation", "", "animation record name")
+		targetAnimation := flags.String("target-animation", "", "renamed output animation")
+		edits := flags.String(
+			"edits",
+			"",
+			"JSON array of bone/timeline/key/channel edits",
+		)
+		apply := flags.Bool("apply", false, "write output; otherwise preview")
+		overwrite := flags.Bool("overwrite", false, "allow replacing existing output")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		options := spineops.ProjectTransformOptions{}
+		if strings.TrimSpace(*recipePath) != "" {
+			absoluteRecipe, err := filepath.Abs(*recipePath)
+			if err != nil {
+				return err
+			}
+			source, err := os.ReadFile(absoluteRecipe)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(source, &options); err != nil {
+				return fmt.Errorf("parse --recipe: %w", err)
+			}
+			directory := filepath.Dir(absoluteRecipe)
+			if options.InputPath != "" && !filepath.IsAbs(options.InputPath) {
+				options.InputPath = filepath.Join(directory, options.InputPath)
+			}
+			if options.OutputPath != "" && !filepath.IsAbs(options.OutputPath) {
+				options.OutputPath = filepath.Join(directory, options.OutputPath)
+			}
+		}
+		if *inputPath != "" {
+			options.InputPath = *inputPath
+		}
+		if *outputPath != "" {
+			options.OutputPath = *outputPath
+		}
+		if *animation != "" {
+			options.Animation = *animation
+		}
+		if *targetAnimation != "" {
+			options.TargetAnimation = *targetAnimation
+		}
+		if strings.TrimSpace(*edits) != "" {
+			if err := json.Unmarshal([]byte(*edits), &options.Edits); err != nil {
+				return fmt.Errorf("parse --edits: %w", err)
+			}
+		}
+		options.Apply = *apply
+		options.Overwrite = *overwrite
+		value, err := spineops.PatchProjectTransform(options)
+		return printJSONMust(output, value, err)
 	case "patch":
 		flags := newFlags("patch", errorOutput)
 		inputPath := flags.String("file", "", "local Spine JSON input")
@@ -299,6 +367,7 @@ Usage:
   spine233-agent-cli summarize --file character.json
   spine233-agent-cli animations --file character.spine
   spine233-agent-cli rotate-timelines --file character.spine --animation attack
+  spine233-agent-cli transform-timelines --file character.spine --animation attack
   spine233-agent-cli inspect   --file character.spine [--output-dir DIR]
   spine233-agent-cli query     --file character.json --pointer /animations/walk
   spine233-agent-cli analyze   --file character.json
@@ -307,6 +376,7 @@ Usage:
   spine233-agent-cli animate-project --recipe agent-animation.json [--apply]
   spine233-agent-cli animate-project --file character.spine --animation attack --end-before idle --edits JSON
   spine233-agent-cli animate-project-rotate --recipe agent-animation.json [--apply]
+  spine233-agent-cli animate-project-transform --recipe agent-animation.json [--apply]
   spine233-agent-cli patch     --file character.json --operations JSON [--output FILE --apply]
   spine233-agent-cli version
 

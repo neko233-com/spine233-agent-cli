@@ -37,8 +37,8 @@ Agent 动画：
 复现：
 
 ```bash
-spine233-agent-cli animate-project-rotate --recipe demo/raptor/agent-animation.json
-spine233-agent-cli animate-project-rotate --recipe demo/raptor/agent-animation.json --apply --overwrite
+spine233-agent-cli animate-project-transform --recipe demo/raptor/agent-animation.json
+spine233-agent-cli animate-project-transform --recipe demo/raptor/agent-animation.json --apply --overwrite
 ```
 
 每个目录保持官方工程布局，包括 `.spine`、`images/`、官方导出文件和该

@@ -307,6 +307,52 @@ func TestAgentDemoRotateProjects(t *testing.T) {
 	}
 }
 
+func TestProjectTransformOfficialHero(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	listed, err := ListProjectTransformTimelines(input, "attack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var translate *spineparser.ProjectTransformTimeline
+	for index := range listed.Directory.Timelines {
+		timeline := &listed.Directory.Timelines[index]
+		if timeline.BoneReference == 6 &&
+			timeline.Type == spineparser.ProjectTimelineTranslate {
+			translate = timeline
+			break
+		}
+	}
+	if translate == nil || len(translate.Keys) != 4 ||
+		translate.Keys[1].Frame != 4 ||
+		translate.Keys[1].Values[0] != float32(4.86) ||
+		translate.Keys[1].Values[1] != float32(-0.24) {
+		t.Fatalf("translate timeline = %#v", translate)
+	}
+	preview, err := PatchProjectTransform(ProjectTransformOptions{
+		InputPath:       input,
+		OutputPath:      filepath.Join(t.TempDir(), "hero-agent.spine"),
+		Animation:       "attack",
+		TargetAnimation: "attack-agent",
+		Edits: []spineparser.ProjectTransformValueEdit{
+			{
+				BoneReference: 6,
+				Timeline:      spineparser.ProjectTimelineTranslate,
+				KeyIndex:      1,
+				Channel:       "x",
+				From:          4.86,
+				To:            8,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied || len(preview.Patch.Changes) != 1 ||
+		preview.Patch.Changes[0].Timeline != spineparser.ProjectTimelineTranslate {
+		t.Fatalf("preview = %#v", preview)
+	}
+}
+
 func rotateValue(
 	directory *spineparser.ProjectRotateTimelineDirectory,
 	boneReference int,

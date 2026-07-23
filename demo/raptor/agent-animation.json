@@ -5,9 +5,9 @@
   "targetAnimation": "gun-grab-agent",
   "intent": "强化前臂抓枪的预备、伸展和回收幅度",
   "edits": [
-    {"boneReference": 40, "keyIndex": 1, "from": -32, "to": -48},
-    {"boneReference": 40, "keyIndex": 2, "from": -136.89, "to": -160},
-    {"boneReference": 40, "keyIndex": 4, "from": -113.86, "to": -128},
-    {"boneReference": 40, "keyIndex": 5, "from": -56.75, "to": -68}
+    {"boneReference": 40, "timeline": "rotate", "keyIndex": 1, "channel": "value", "from": -32, "to": -48},
+    {"boneReference": 40, "timeline": "rotate", "keyIndex": 2, "channel": "value", "from": -136.89, "to": -160},
+    {"boneReference": 40, "timeline": "rotate", "keyIndex": 4, "channel": "value", "from": -113.86, "to": -128},
+    {"boneReference": 40, "timeline": "rotate", "keyIndex": 5, "channel": "value", "from": -56.75, "to": -68}
   ]
 }

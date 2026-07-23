@@ -5,13 +5,13 @@
   "targetAnimation": "death-agent",
   "intent": "强化身体抽搐、反冲和最终倒地幅度",
   "edits": [
-    {"boneReference": 9, "keyIndex": 2, "from": -10.509285, "to": -18},
-    {"boneReference": 9, "keyIndex": 3, "from": -7.73407, "to": 12},
-    {"boneReference": 9, "keyIndex": 4, "from": -11.744247, "to": -22},
-    {"boneReference": 9, "keyIndex": 5, "from": -8.242554, "to": 16},
-    {"boneReference": 9, "keyIndex": 6, "from": -8.235916, "to": -14},
-    {"boneReference": 9, "keyIndex": 8, "from": -5.0681, "to": 8},
-    {"boneReference": 9, "keyIndex": 10, "from": 30.29, "to": 42},
-    {"boneReference": 9, "keyIndex": 11, "from": 74.27, "to": 95}
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 2, "channel": "value", "from": -10.509285, "to": -18},
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 3, "channel": "value", "from": -7.73407, "to": 12},
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 4, "channel": "value", "from": -11.744247, "to": -22},
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 5, "channel": "value", "from": -8.242554, "to": 16},
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 6, "channel": "value", "from": -8.235916, "to": -14},
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 8, "channel": "value", "from": -5.0681, "to": 8},
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 10, "channel": "value", "from": 30.29, "to": 42},
+    {"boneReference": 9, "timeline": "rotate", "keyIndex": 11, "channel": "value", "from": 74.27, "to": 95}
   ]
 }

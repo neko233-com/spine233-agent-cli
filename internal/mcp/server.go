@@ -127,6 +127,13 @@ func tools() []map[string]any {
 			}, "path", "animation"),
 		},
 		{
+			"name": "spine_list_project_transform_timelines", "description": "Decode one .spine animation's rotate, translate, scale, and shear timelines with bone references, frames, channel values, curves, and offsets.",
+			"inputSchema": schema(map[string]any{
+				"path":      path,
+				"animation": map[string]any{"type": "string", "description": "Unique top-level animation record name"},
+			}, "path", "animation"),
+		},
+		{
 			"name": "spine_query_json", "description": "Read a bounded semantic subtree from Spine JSON using RFC 6901 JSON Pointer, for example /animations/walk.",
 			"inputSchema": schema(map[string]any{
 				"path":     map[string]any{"type": "string", "description": "Local Spine JSON path"},
@@ -226,6 +233,32 @@ func tools() []map[string]any {
 				"overwrite": map[string]any{"type": "boolean", "default": false},
 			}, "inputPath", "animation", "edits"),
 		},
+		{
+			"name": "spine_patch_project_transform", "description": "Preview or apply semantic rotate/translate/scale/shear channel edits selected by bone reference, timeline, key index, channel, and old value. Never invokes Spine Editor or overwrites input.",
+			"inputSchema": schema(map[string]any{
+				"inputPath":       map[string]any{"type": "string"},
+				"outputPath":      map[string]any{"type": "string"},
+				"animation":       map[string]any{"type": "string"},
+				"targetAnimation": map[string]any{"type": "string", "description": "Optional renamed animation, convention: {animation}-agent"},
+				"edits": map[string]any{
+					"type": "array", "minItems": 1,
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"boneReference": map[string]any{"type": "integer", "minimum": 1},
+							"timeline":      map[string]any{"type": "string", "enum": []string{"rotate", "translate", "scale", "shear"}},
+							"keyIndex":      map[string]any{"type": "integer", "minimum": 0},
+							"channel":       map[string]any{"type": "string", "enum": []string{"value", "x", "y"}},
+							"from":          map[string]any{"type": "number"},
+							"to":            map[string]any{"type": "number"},
+						},
+						"required": []string{"boneReference", "timeline", "keyIndex", "channel", "from", "to"},
+					},
+				},
+				"apply":     map[string]any{"type": "boolean", "default": false},
+				"overwrite": map[string]any{"type": "boolean", "default": false},
+			}, "inputPath", "animation", "edits"),
+		},
 	}
 }
 
@@ -288,6 +321,15 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.ListProjectRotateTimelines(args.Path, args.Animation)
+	case "spine_list_project_transform_timelines":
+		var args struct {
+			Path      string `json:"path"`
+			Animation string `json:"animation"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.ListProjectTransformTimelines(args.Path, args.Animation)
 	case "spine_query_json":
 		var args struct {
 			Path     string `json:"path"`
@@ -341,6 +383,12 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.PatchProjectRotate(args)
+	case "spine_patch_project_transform":
+		var args spineops.ProjectTransformOptions
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.PatchProjectTransform(args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", call.Name)
 	}

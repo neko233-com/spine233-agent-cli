@@ -17,12 +17,12 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - 检测 `.spine`、`.skel`、Spine JSON。
 - `.spine` 无损解包、检查、重新序列化。
 - 自动解析 `.spine` 动画数量、名称、偏移和记录边界。
-- 语义解析 rotate 时间线、骨骼引用、帧号、值和曲线。
-- 按骨骼引用与关键帧索引 fail-closed 修改 rotate 动画。
+- 语义解析 rotate/translate/scale/shear、骨骼引用、帧、值和曲线。
+- 按骨骼引用、时间线、关键帧和通道 fail-closed 修改动画。
 - 直接定位动画记录，fail-closed 修改大端 float32 关键帧。
 - Spine JSON 深度分析、引用验证、查询、Patch。
 - Spine JSON 动画克隆、重定时、骨骼时间线替换。
-- 12 个 stdio MCP 工具。
+- 14 个 stdio MCP 工具。
 
 ## 安装
 
@@ -40,38 +40,39 @@ spine233-agent-cli inspect --file hero.spine --output-dir .spine-diagnostics
 spine233-agent-cli summarize --file hero.spine
 spine233-agent-cli animations --file hero.spine
 spine233-agent-cli rotate-timelines --file hero.spine --animation attack
+spine233-agent-cli transform-timelines --file hero.spine --animation attack
 ```
 
 语义修改 `.spine` rotate 动画，默认只预览：
 
 ```bash
-spine233-agent-cli animate-project-rotate --recipe demo/hero/agent-animation.json
+spine233-agent-cli animate-project-transform --recipe demo/hero/agent-animation.json
 
-spine233-agent-cli animate-project-rotate \
+spine233-agent-cli animate-project-transform \
   --file hero-human.spine \
   --animation attack \
   --target-animation attack-agent \
-  --edits '[{"boneReference":6,"keyIndex":1,"from":13.22,"to":24}]'
+  --edits '[{"boneReference":6,"timeline":"rotate","keyIndex":1,"channel":"value","from":13.22,"to":24}]'
 ```
 
 确认后输出新工程：
 
 ```bash
-spine233-agent-cli animate-project-rotate \
+spine233-agent-cli animate-project-transform \
   --recipe demo/hero/agent-animation.json \
   --apply
 
-spine233-agent-cli animate-project-rotate \
+spine233-agent-cli animate-project-transform \
   --file hero-human.spine \
   --output hero-agent.spine \
   --animation attack \
   --target-animation attack-agent \
-  --edits '[{"boneReference":6,"keyIndex":1,"from":13.22,"to":24}]' \
+  --edits '[{"boneReference":6,"timeline":"rotate","keyIndex":1,"channel":"value","from":13.22,"to":24}]' \
   --apply
 ```
 
-`boneReference`、`keyIndex`、`from` 任一不符时失败，避免布局或 Agent
-计划漂移造成误改。原始 `animate-project` float32 模式继续兼容。
+`boneReference`、`timeline`、`keyIndex`、`channel`、`from` 任一不符时失败，
+避免布局或 Agent 计划漂移造成误改。rotate 专用和原始 float32 模式继续兼容。
 
 Spine JSON 操作：
 
@@ -107,8 +108,10 @@ MCP 工具：
 | `spine_inspect_project` | `.spine` 解包诊断 |
 | `spine_list_project_animations` | 直接列出 `.spine` 动画目录 |
 | `spine_list_project_rotate_timelines` | 语义列出 rotate 时间线 |
+| `spine_list_project_transform_timelines` | 列出骨骼变换时间线 |
 | `spine_patch_project_animation` | 直接修改 `.spine` 动画关键帧 |
 | `spine_patch_project_rotate` | 语义修改 rotate 关键帧 |
+| `spine_patch_project_transform` | 修改骨骼变换关键帧 |
 | `spine_query_json` | JSON Pointer 查询 |
 | `spine_patch_json` | JSON Patch |
 | `spine_analyze_json` | 深度能力清单 |

@@ -5,9 +5,9 @@
   "targetAnimation": "attack-agent",
   "intent": "强化攻击蓄力、挥击和身体跟随幅度",
   "edits": [
-    {"boneReference": 6, "keyIndex": 0, "from": 2.2, "to": 4.5},
-    {"boneReference": 6, "keyIndex": 1, "from": 13.22, "to": 24},
-    {"boneReference": 6, "keyIndex": 3, "from": -23.59, "to": -38},
-    {"boneReference": 6, "keyIndex": 4, "from": -32.15, "to": -52}
+    {"boneReference": 6, "timeline": "rotate", "keyIndex": 0, "channel": "value", "from": 2.2, "to": 4.5},
+    {"boneReference": 6, "timeline": "rotate", "keyIndex": 1, "channel": "value", "from": 13.22, "to": 24},
+    {"boneReference": 6, "timeline": "rotate", "keyIndex": 3, "channel": "value", "from": -23.59, "to": -38},
+    {"boneReference": 6, "timeline": "rotate", "keyIndex": 4, "channel": "value", "from": -32.15, "to": -52}
   ]
 }
