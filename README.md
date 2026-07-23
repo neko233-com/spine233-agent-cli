@@ -17,6 +17,7 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - 检测 `.spine`、`.skel`、Spine JSON。
 - `.spine` 无损解包、检查、重新序列化。
 - 自动解析 `.spine` 动画数量、名称、偏移和记录边界。
+- preview-first 安全删除 `.spine` 动画表末项。
 - 自动解析 `.spine` 骨骼名、对象偏移和原始父对象 token。
 - 语义解析 rotate/translate/scale/shear、骨骼引用、帧、值和曲线。
 - 解析并重定时 slot attachment 切换关键帧。
@@ -26,7 +27,7 @@ Go 1.26 本地 Spine Pro Agent CLI。接入
 - Spine JSON 动画克隆、重定时、骨骼时间线替换。
 - 声明式重写整条 transform 时间线，适合 Codex 生成完整动作。
 - 自动从已有动画生成 Codex 可编辑完整 recipe。
-- 21 个 stdio MCP 工具。
+- 22 个 stdio MCP 工具。
 
 ## 安装
 
@@ -47,11 +48,24 @@ spine233-agent-cli bones --file hero.spine
 spine233-agent-cli rotate-timelines --file hero.spine --animation attack
 spine233-agent-cli transform-timelines --file hero.spine --animation attack
 spine233-agent-cli slot-attachment-timelines --file alien.spine --animation death
+spine233-agent-cli delete-last-project-animation \
+  --file hero-human.spine \
+  --animation walk
 spine233-agent-cli scaffold-project-transform \
   --file hero-human.spine \
   --animation attack \
   --bone-references 6,12 \
   --timeline-types rotate,translate > attack-agent-recipe.json
+```
+
+删除动画仅允许当前目录末项，并校验预期名称；至少保留一个动画。默认预览，
+确认后 `--apply` 写入同目录 `*-agent.spine`，永不覆盖输入：
+
+```bash
+spine233-agent-cli delete-last-project-animation \
+  --file hero-human.spine \
+  --animation walk \
+  --apply
 ```
 
 `--bone-references` 和 `--timeline-types` 可选；用于缩小大型工程的 agent
@@ -162,6 +176,7 @@ MCP 工具：
 | `spine_summarize` | 紧凑汇总 |
 | `spine_inspect_project` | `.spine` 解包诊断 |
 | `spine_list_project_animations` | 直接列出 `.spine` 动画目录 |
+| `spine_delete_last_project_animation` | 预览或删除动画表末项 |
 | `spine_list_project_bones` | 直接列出 `.spine` 骨骼目录 |
 | `spine_list_project_rotate_timelines` | 语义列出 rotate 时间线 |
 | `spine_list_project_transform_timelines` | 列出骨骼变换时间线 |

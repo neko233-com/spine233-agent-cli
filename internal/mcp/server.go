@@ -120,6 +120,16 @@ func tools() []map[string]any {
 			"inputSchema": schema(map[string]any{"path": path}, "path"),
 		},
 		{
+			"name": "spine_delete_last_project_animation", "description": "Preview or delete only the terminal .spine animation map entry. The expected final name fails closed, at least one animation is retained, and apply defaults to a new sibling *-agent.spine without overwriting input.",
+			"inputSchema": schema(map[string]any{
+				"inputPath":  map[string]any{"type": "string"},
+				"outputPath": map[string]any{"type": "string", "description": "Optional; defaults to sibling *-agent.spine when apply=true"},
+				"animation":  map[string]any{"type": "string", "description": "Expected terminal animation record name"},
+				"apply":      map[string]any{"type": "boolean", "default": false},
+				"overwrite":  map[string]any{"type": "boolean", "default": false},
+			}, "inputPath", "animation"),
+		},
+		{
 			"name": "spine_list_project_bones", "description": "Directly decode .spine bone names, serialization offsets, and raw Kryo parent tokens without Spine Editor.",
 			"inputSchema": schema(map[string]any{"path": path}, "path"),
 		},
@@ -484,6 +494,12 @@ func callTool(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return spineops.ListProjectAnimations(args.Path)
+	case "spine_delete_last_project_animation":
+		var args spineops.ProjectAnimationDeleteOptions
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		return spineops.DeleteLastProjectAnimation(args)
 	case "spine_list_project_bones":
 		var args struct {
 			Path string `json:"path"`

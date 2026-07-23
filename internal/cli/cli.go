@@ -54,6 +54,38 @@ func Run(ctx context.Context, args []string, input io.Reader, output, errorOutpu
 		}
 		value, err := spineops.ListProjectAnimations(*path)
 		return printJSONMust(output, value, err)
+	case "delete-last-project-animation":
+		flags := newFlags("delete-last-project-animation", errorOutput)
+		inputPath := flags.String("file", "", "local .spine input")
+		outputPath := flags.String(
+			"output",
+			"",
+			"new .spine output; defaults to sibling *-agent.spine",
+		)
+		animation := flags.String(
+			"animation",
+			"",
+			"expected final animation record name",
+		)
+		apply := flags.Bool("apply", false, "write output; otherwise preview")
+		overwrite := flags.Bool(
+			"overwrite",
+			false,
+			"allow replacing an existing output, never the input",
+		)
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		value, err := spineops.DeleteLastProjectAnimation(
+			spineops.ProjectAnimationDeleteOptions{
+				InputPath:  *inputPath,
+				OutputPath: *outputPath,
+				Animation:  *animation,
+				Apply:      *apply,
+				Overwrite:  *overwrite,
+			},
+		)
+		return printJSONMust(output, value, err)
 	case "bones":
 		flags := newFlags("bones", errorOutput)
 		path := flags.String("file", "", "local .spine project")
@@ -670,6 +702,7 @@ Usage:
   spine233-agent-cli detect    --file character.spine
   spine233-agent-cli summarize --file character.json
   spine233-agent-cli animations --file character.spine
+  spine233-agent-cli delete-last-project-animation --file character.spine --animation walk [--apply]
   spine233-agent-cli bones --file character.spine
   spine233-agent-cli rotate-timelines --file character.spine --animation attack
   spine233-agent-cli transform-timelines --file character.spine --animation attack

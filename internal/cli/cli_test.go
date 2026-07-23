@@ -55,6 +55,45 @@ func TestRunAnimateProjectRecipePreview(t *testing.T) {
 	}
 }
 
+func TestRunDeleteLastProjectAnimationPreview(t *testing.T) {
+	input := filepath.Join("..", "..", "demo", "raptor", "raptor-human.spine")
+	output := new(bytes.Buffer)
+	if err := Run(
+		context.Background(),
+		[]string{
+			"delete-last-project-animation",
+			"--file", input,
+			"--animation", "walk",
+		},
+		bytes.NewReader(nil),
+		output,
+		new(bytes.Buffer),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Applied  bool `json:"applied"`
+		Deletion struct {
+			Animation     string `json:"animation"`
+			PreviousCount int    `json:"previousCount"`
+			Count         int    `json:"count"`
+		} `json:"deletion"`
+		Directory struct {
+			Count int `json:"count"`
+		} `json:"directory"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Applied ||
+		result.Deletion.Animation != "walk" ||
+		result.Deletion.PreviousCount != 5 ||
+		result.Deletion.Count != 4 ||
+		result.Directory.Count != 4 {
+		t.Fatalf("result = %s", output.String())
+	}
+}
+
 func TestParseIntegerList(t *testing.T) {
 	values, err := parseIntegerList(" 6, 12,40 ")
 	if err != nil {

@@ -154,6 +154,122 @@ func ListProjectAnimations(path string) (*ProjectAnimationList, error) {
 	}, nil
 }
 
+// ProjectAnimationDeleteOptions controls deletion of the terminal animation
+// map entry. The operation is preview-first and never overwrites input.
+type ProjectAnimationDeleteOptions struct {
+	InputPath  string `json:"inputPath"`
+	OutputPath string `json:"outputPath,omitempty"`
+	Animation  string `json:"animation"`
+	Apply      bool   `json:"apply,omitempty"`
+	Overwrite  bool   `json:"overwrite,omitempty"`
+}
+
+// ProjectAnimationDeleteResult reports a terminal animation deletion preview
+// or a newly serialized project.
+type ProjectAnimationDeleteResult struct {
+	InputPath         string                                   `json:"inputPath"`
+	OutputPath        string                                   `json:"outputPath,omitempty"`
+	Applied           bool                                     `json:"applied"`
+	InputSHA256       string                                   `json:"inputSha256"`
+	OutputSHA256      string                                   `json:"outputSha256"`
+	CompressedBytes   int                                      `json:"compressedBytes"`
+	UncompressedBytes int                                      `json:"uncompressedBytes"`
+	Deletion          spineparser.ProjectAnimationDeleteReport `json:"deletion"`
+	Directory         *spineparser.ProjectAnimationDirectory   `json:"directory"`
+}
+
+// DeleteLastProjectAnimation previews or deletes the terminal project
+// animation without invoking Spine Editor.
+func DeleteLastProjectAnimation(
+	options ProjectAnimationDeleteOptions,
+) (*ProjectAnimationDeleteResult, error) {
+	absoluteInput, source, info, err := readFile(options.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	document, err := spineparser.DeserializeProject(
+		source,
+		spineparser.InspectOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	deleted, report, err := spineparser.DeleteLastProjectAnimation(
+		document,
+		options.Animation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := spineparser.SerializeProject(
+		deleted,
+		spineparser.ProjectSerializeOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	verified, err := spineparser.DeserializeProject(
+		encoded,
+		spineparser.InspectOptions{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("verify serialized project: %w", err)
+	}
+	if !bytes.Equal(verified.Payload, deleted.Payload) {
+		return nil, errors.New("verify serialized project: payload mismatch")
+	}
+	directory, err := spineparser.DiscoverProjectAnimations(verified.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("verify deleted animation directory: %w", err)
+	}
+	if directory.Count != report.Count ||
+		len(directory.Records) != report.Count {
+		return nil, errors.New("verify deleted animation directory: count mismatch")
+	}
+
+	inputHash := sha256.Sum256(source)
+	outputHash := sha256.Sum256(encoded)
+	result := &ProjectAnimationDeleteResult{
+		InputPath:         absoluteInput,
+		InputSHA256:       hex.EncodeToString(inputHash[:]),
+		OutputSHA256:      hex.EncodeToString(outputHash[:]),
+		CompressedBytes:   len(encoded),
+		UncompressedBytes: len(deleted.Payload),
+		Deletion:          report,
+		Directory:         directory,
+	}
+	if !options.Apply {
+		return result, nil
+	}
+	outputPath := options.OutputPath
+	if strings.TrimSpace(outputPath) == "" {
+		outputPath = defaultAgentProjectPath(absoluteInput)
+	}
+	absoluteOutput, err := filepath.Abs(outputPath)
+	if err != nil {
+		return nil, err
+	}
+	if samePath(absoluteInput, absoluteOutput) {
+		return nil, errors.New("outputPath must differ from inputPath")
+	}
+	if !options.Overwrite {
+		if _, err := os.Stat(absoluteOutput); err == nil {
+			return nil, fmt.Errorf(
+				"outputPath already exists; set overwrite=true: %s",
+				absoluteOutput,
+			)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := writeFileAtomic(absoluteOutput, encoded, info.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	result.OutputPath = absoluteOutput
+	result.Applied = true
+	return result, nil
+}
+
 // ProjectBoneList is a directly decoded .spine bone directory.
 type ProjectBoneList struct {
 	Path         string                            `json:"path"`

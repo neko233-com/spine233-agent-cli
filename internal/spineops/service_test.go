@@ -1,6 +1,7 @@
 package spineops
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -196,6 +197,163 @@ func TestListProjectAnimationsOfficialHero(t *testing.T) {
 	if agent.Directory.Count != 12 ||
 		agent.Directory.Records[0].Name != "attack-agent" {
 		t.Fatalf("agent animations = %#v", agent.Directory)
+	}
+}
+
+func TestDeleteLastProjectAnimationPreviewAndDefaultApply(t *testing.T) {
+	sourcePath := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	input := filepath.Join(directory, "hero-human.spine")
+	if err := os.WriteFile(input, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(directory, "hero-agent.spine")
+	options := ProjectAnimationDeleteOptions{
+		InputPath: input,
+		Animation: "walk",
+	}
+	preview, err := DeleteLastProjectAnimation(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied ||
+		preview.OutputPath != "" ||
+		preview.InputSHA256 == preview.OutputSHA256 ||
+		preview.Deletion.PreviousCount != 12 ||
+		preview.Deletion.Count != 11 ||
+		preview.Directory.Count != 11 ||
+		preview.Directory.Records[10].Name != "run-from fall" {
+		t.Fatalf("preview = %#v", preview)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("preview wrote default output: %v", err)
+	}
+
+	options.Apply = true
+	applied, err := DeleteLastProjectAnimation(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absoluteOutput, err := filepath.Abs(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied ||
+		applied.OutputPath != absoluteOutput ||
+		applied.Directory.Count != 11 {
+		t.Fatalf("applied = %#v", applied)
+	}
+	outputSource, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := spineparser.DeserializeProject(
+		outputSource,
+		spineparser.InspectOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloadedDirectory, err := spineparser.DiscoverProjectAnimations(
+		reloaded.Payload,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedDirectory.Count != 11 ||
+		reloadedDirectory.Records[10].Name != "run-from fall" {
+		t.Fatalf("reloaded directory = %#v", reloadedDirectory)
+	}
+	unchanged, err := os.ReadFile(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unchanged, source) {
+		t.Fatal("input project was overwritten")
+	}
+}
+
+func TestDeleteLastProjectAnimationFailsClosed(t *testing.T) {
+	sourcePath := filepath.Join("..", "..", "demo", "hero", "hero-human.spine")
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(t.TempDir(), "hero-human.spine")
+	if err := os.WriteFile(input, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DeleteLastProjectAnimation(ProjectAnimationDeleteOptions{
+		InputPath: input,
+		Animation: "attack",
+	}); err == nil || !strings.Contains(err.Error(), "not the final") {
+		t.Fatalf("non-terminal deletion err = %v", err)
+	}
+	if _, err := DeleteLastProjectAnimation(ProjectAnimationDeleteOptions{
+		InputPath:  input,
+		OutputPath: input,
+		Animation:  "walk",
+		Apply:      true,
+		Overwrite:  true,
+	}); err == nil || !strings.Contains(err.Error(), "must differ") {
+		t.Fatalf("input overwrite err = %v", err)
+	}
+	unchanged, err := os.ReadFile(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unchanged, source) {
+		t.Fatal("rejected deletion changed input")
+	}
+
+	document, err := spineparser.DeserializeProject(
+		source,
+		spineparser.InspectOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		animations, err := spineparser.DiscoverProjectAnimations(document.Payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if animations.Count == 1 {
+			break
+		}
+		final := animations.Records[len(animations.Records)-1]
+		document, _, err = spineparser.DeleteLastProjectAnimation(
+			document,
+			final.Name,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	onlyDirectory, err := spineparser.DiscoverProjectAnimations(document.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlySource, err := spineparser.SerializeProject(
+		document,
+		spineparser.ProjectSerializeOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlyPath := filepath.Join(t.TempDir(), "only.spine")
+	if err := os.WriteFile(onlyPath, onlySource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DeleteLastProjectAnimation(ProjectAnimationDeleteOptions{
+		InputPath: onlyPath,
+		Animation: onlyDirectory.Records[0].Name,
+	}); err == nil || !strings.Contains(err.Error(), "only project animation") {
+		t.Fatalf("only-animation deletion err = %v", err)
 	}
 }
 
